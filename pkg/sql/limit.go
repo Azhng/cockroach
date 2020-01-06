@@ -24,9 +24,11 @@ type limitNode struct {
 	plan       planNode
 	countExpr  tree.TypedExpr
 	offsetExpr tree.TypedExpr
+	stepExpr   tree.TypedExpr
 	evaluated  bool
 	count      int64
 	offset     int64
+	step       int64
 }
 
 func (n *limitNode) startExec(params runParams) error {
@@ -46,10 +48,12 @@ func (n *limitNode) Close(ctx context.Context) {
 }
 
 // evalLimit evaluates the Count and Offset fields. If Count is missing, the
-// value is MaxInt64. If Offset is missing, the value is 0
+// value is MaxInt64. If Offset is missing, the value is 0. If Step is missing,
+// the value is 1.
 func (n *limitNode) evalLimit(evalCtx *tree.EvalContext) error {
 	n.count = math.MaxInt64
 	n.offset = 0
+	n.step = 1
 
 	data := []struct {
 		name string
@@ -58,6 +62,7 @@ func (n *limitNode) evalLimit(evalCtx *tree.EvalContext) error {
 	}{
 		{"LIMIT", n.countExpr, &n.count},
 		{"OFFSET", n.offsetExpr, &n.offset},
+		{"STEP", n.stepExpr, &n.step},
 	}
 
 	for _, datum := range data {
