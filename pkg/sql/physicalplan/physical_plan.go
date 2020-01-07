@@ -668,19 +668,22 @@ func emptyPlan(types []types.T, node roachpb.NodeID) PhysicalPlan {
 	}
 }
 
-// AddLimit adds a limit and/or offset to the results of the current plan. If
-// there are multiple result streams, they are joined into a single processor
+// AddLimit adds a limit and/or offset and/or step to the results of the current plan.
+// If there are multiple result streams, they are joined into a single processor
 // that is placed on the given node.
 //
 // For no limit, count should be MaxInt64.
 func (p *PhysicalPlan) AddLimit(
-	count int64, offset int64, exprCtx ExprContext, node roachpb.NodeID,
+	count int64, offset int64, step int64, exprCtx ExprContext, node roachpb.NodeID,
 ) error {
 	if count < 0 {
 		return errors.Errorf("negative limit")
 	}
 	if offset < 0 {
 		return errors.Errorf("negative offset")
+	}
+	if step < 1 {
+		return errors.Errorf("invalid step")
 	}
 	// limitZero is set to true if the limit is a legitimate LIMIT 0 requested by
 	// the user. This needs to be tracked as a separate condition because DistSQL
@@ -740,7 +743,13 @@ func (p *PhysicalPlan) AddLimit(
 		if count != math.MaxInt64 && (post.Limit == 0 || post.Limit > uint64(count)) {
 			post.Limit = uint64(count)
 		}
-		p.SetLastStagePost(post, p.ResultTypes)
+		//p.SetLastStagePost(post, p.ResultTypes)
+		p.AddSingleGroupStage(
+			node,
+			execinfrapb.ProcessorCoreUnion{Step: &execinfrapb.StepSpec{step}},
+			post,
+			p.ResultTypes,
+		)
 		if limitZero {
 			if err := p.AddFilter(tree.DBoolFalse, exprCtx, nil); err != nil {
 				return err
@@ -771,7 +780,7 @@ func (p *PhysicalPlan) AddLimit(
 	}
 	p.AddSingleGroupStage(
 		node,
-		execinfrapb.ProcessorCoreUnion{Noop: &execinfrapb.NoopCoreSpec{}},
+		execinfrapb.ProcessorCoreUnion{Step: &execinfrapb.StepSpec{step}},
 		post,
 		p.ResultTypes,
 	)

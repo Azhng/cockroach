@@ -241,7 +241,7 @@ message DistinctSpec {
 }
 
 message StepSpec {
-  required uint64 num_of_rows = 1 [(gogoproto.nullable) = false];
+  required int64 num_of_rows = 1 [(gogoproto.nullable) = false];
 }
 
 // The specification for a WITH ORDINALITY processor. It adds a new column to

@@ -22,8 +22,9 @@ import (
 type stepProcessor struct {
 	execinfra.ProcessorBase
 	input execinfra.RowSource
+	step  int64
 
-	step int64
+	processedRowCnt int64
 }
 
 var _ execinfra.Processor = &stepProcessor{}
@@ -39,7 +40,12 @@ func newStepProcessor(
 	output execinfra.RowReceiver,
 	spec *execinfrapb.StepSpec,
 ) (*stepProcessor, error) {
-	n := &stepProcessor{input: input, step: spec.NumOfRows}
+	n := &stepProcessor{
+		input:           input,
+		step:            spec.NumOfRows,
+		processedRowCnt: int64(0),
+	}
+
 	if err := n.Init(
 		n,
 		post,
@@ -64,7 +70,6 @@ func (n *stepProcessor) Start(ctx context.Context) context.Context {
 // Next is part of the RowSource interface.
 func (n *stepProcessor) Next() (sqlbase.EncDatumRow, *execinfrapb.ProducerMetadata) {
 	for n.State == execinfra.StateRunning {
-
 		row, meta := n.input.Next()
 
 		if meta != nil {
@@ -78,14 +83,20 @@ func (n *stepProcessor) Next() (sqlbase.EncDatumRow, *execinfrapb.ProducerMetada
 			break
 		}
 
-		if outRow := n.ProcessRowHelper(row); outRow != nil {
-			for i := int64(0); i < n.step-1; i++ {
-				row, meta = n.input.Next()
-				if meta != nil || row == nil {
-					break
-				}
+		// resets the processed row count
+		if n.processedRowCnt == n.step {
+			n.processedRowCnt = 0
+		}
+
+		if n.processedRowCnt == 0 {
+			if outRow := n.ProcessRowHelper(row); outRow != nil {
+				n.processedRowCnt++
+				return outRow, nil
 			}
-			return outRow, nil
+		}
+
+		if n.processedRowCnt < n.step {
+			n.processedRowCnt++
 		}
 	}
 	return nil, n.DrainHelper()

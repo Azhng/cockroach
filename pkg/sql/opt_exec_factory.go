@@ -734,7 +734,7 @@ func (ef *execFactory) ConstructLimit(
 	// only applying a limit, update the existing node. This is useful because
 	// Limit and Offset are separate operators which result in separate calls to
 	// this function.
-	if l, ok := plan.(*limitNode); ok && l.countExpr == nil && offset == nil {
+	if l, ok := plan.(*limitNode); ok && l.countExpr == nil && offset == nil && step == nil {
 		l.countExpr = limit
 		return l, nil
 	}

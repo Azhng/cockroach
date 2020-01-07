@@ -503,6 +503,11 @@ func (s *ChangeFrontierSpec) summary() (string, []string) {
 	return "ChangeFrontier", []string{}
 }
 
+// summary implements to diagramCellType interface
+func (s *StepSpec) summary() (string, []string) {
+	return "StepSpec", []string{strconv.FormatInt(s.NumOfRows, 10)}
+}
+
 type diagramCell struct {
 	Title   string   `json:"title"`
 	Details []string `json:"details"`
