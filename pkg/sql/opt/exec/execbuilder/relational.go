@@ -202,8 +202,8 @@ func (b *Builder) buildRelational(e memo.RelExpr) (execPlan, error) {
 	case *memo.DistinctOnExpr:
 		ep, err = b.buildDistinct(t)
 
-	case *memo.LimitExpr, *memo.OffsetExpr:
-		ep, err = b.buildLimitOffset(e)
+	case *memo.LimitExpr, *memo.OffsetExpr, *memo.StepExpr:
+		ep, err = b.buildLimitOffsetStep(e)
 
 	case *memo.SortExpr:
 		ep, err = b.buildSort(t)
@@ -1156,8 +1156,8 @@ func (b *Builder) buildSetOp(set memo.RelExpr) (execPlan, error) {
 	return ep, nil
 }
 
-// buildLimitOffset builds a plan for a LimitOp or OffsetOp
-func (b *Builder) buildLimitOffset(e memo.RelExpr) (execPlan, error) {
+// buildLimitOffsetStep builds a plan for a LimitOp or OffsetOp
+func (b *Builder) buildLimitOffsetStep(e memo.RelExpr) (execPlan, error) {
 	input, err := b.buildRelational(e.Child(0).(memo.RelExpr))
 	if err != nil {
 		return execPlan{}, err
@@ -1170,9 +1170,11 @@ func (b *Builder) buildLimitOffset(e memo.RelExpr) (execPlan, error) {
 	}
 	var node exec.Node
 	if e.Op() == opt.LimitOp {
-		node, err = b.factory.ConstructLimit(input.root, expr, nil)
+		node, err = b.factory.ConstructLimit(input.root, expr, nil, nil)
+	} else if e.Op() == opt.OffsetOp {
+		node, err = b.factory.ConstructLimit(input.root, nil, expr, nil)
 	} else {
-		node, err = b.factory.ConstructLimit(input.root, nil, expr)
+		node, err = b.factory.ConstructLimit(input.root, nil, nil, expr)
 	}
 	if err != nil {
 		return execPlan{}, err

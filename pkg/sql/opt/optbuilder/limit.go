@@ -16,7 +16,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/sql/types"
 )
 
-// buildLimit adds Limit and Offset operators according to the Limit clause.
+// buildLimit adds Limit and Offset and Step operators according to the Limit clause.
 //
 // parentScope is the scope for the LIMIT/OFFSET expressions; this is not the
 // same as inScope, because statements like:
@@ -36,5 +36,13 @@ func (b *Builder) buildLimit(limit *tree.Limit, parentScope, inScope *scope) {
 			limit.Count, types.Int, "LIMIT", tree.RejectSpecial, parentScope,
 		)
 		inScope.expr = b.factory.ConstructLimit(input, limit, inScope.makeOrderingChoice())
+	}
+	if limit.Step != nil {
+		input := inScope.expr.(memo.RelExpr)
+		step := b.resolveAndBuildScalar(
+			limit.Step, types.Int, "STEP", tree.RejectSpecial, parentScope,
+		)
+		inScope.expr = b.factory.ConstructStep(input, step, inScope.makeOrderingChoice())
+		//inScope.expr = b.factory.ConstructLimit(input, step, inScope.makeOrderingChoice())
 	}
 }

@@ -1012,6 +1012,25 @@ func (b *logicalPropsBuilder) buildOffsetProps(offset *OffsetExpr, rel *props.Re
 	}
 }
 
+func (b *logicalPropsBuilder) buildStepProps(step *StepExpr, rel *props.Relational) {
+	BuildSharedProps(step, &rel.Shared)
+
+	inputProps := step.Input.Relational()
+
+	rel.OutputCols = inputProps.OutputCols
+
+	rel.NotNullCols = inputProps.NotNullCols
+
+	rel.FuncDeps.CopyFrom(&inputProps.FuncDeps)
+
+	rel.Cardinality = inputProps.Cardinality
+
+	// TODO(az@): do we need stats for this one?
+	//if !b.disableStats {
+	//	b.sb.buildStep(step, rel)
+	//}
+}
+
 func (b *logicalPropsBuilder) buildMax1RowProps(max1Row *Max1RowExpr, rel *props.Relational) {
 	BuildSharedProps(max1Row, &rel.Shared)
 

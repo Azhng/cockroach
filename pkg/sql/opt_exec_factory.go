@@ -727,7 +727,7 @@ func (ef *execFactory) ConstructZigzagJoin(
 
 // ConstructLimit is part of the exec.Factory interface.
 func (ef *execFactory) ConstructLimit(
-	input exec.Node, limit, offset tree.TypedExpr,
+	input exec.Node, limit, offset, step tree.TypedExpr,
 ) (exec.Node, error) {
 	plan := input.(planNode)
 	// If the input plan is also a limitNode that has just an offset, and we are
@@ -748,6 +748,7 @@ func (ef *execFactory) ConstructLimit(
 		plan:       plan,
 		countExpr:  limit,
 		offsetExpr: offset,
+		stepExpr:   step,
 	}, nil
 }
 
