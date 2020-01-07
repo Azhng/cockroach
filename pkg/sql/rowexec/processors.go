@@ -313,6 +313,9 @@ func NewProcessor(
 		}
 		return NewChangeFrontierProcessor(flowCtx, processorID, *core.ChangeFrontier, inputs[0], outputs[0])
 	}
+	if core.Step != nil {
+		panic("Not yet implemented")
+	}
 	return nil, errors.Errorf("unsupported processor core %q", core)
 }
 
