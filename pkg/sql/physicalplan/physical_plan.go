@@ -743,11 +743,20 @@ func (p *PhysicalPlan) AddLimit(
 		if count != math.MaxInt64 && (post.Limit == 0 || post.Limit > uint64(count)) {
 			post.Limit = uint64(count)
 		}
-		//p.SetLastStagePost(post, p.ResultTypes)
+
+		offsetPost := execinfrapb.PostProcessSpec{
+			Offset: post.Offset,
+		}
+
+		limitPost := execinfrapb.PostProcessSpec{
+			Limit: post.Limit,
+		}
+
+		p.SetLastStagePost(offsetPost, p.ResultTypes)
 		p.AddSingleGroupStage(
 			node,
 			execinfrapb.ProcessorCoreUnion{Step: &execinfrapb.StepSpec{step}},
-			post,
+			limitPost,
 			p.ResultTypes,
 		)
 		if limitZero {
@@ -772,11 +781,17 @@ func (p *PhysicalPlan) AddLimit(
 		}
 	}
 
+	// do offset in previous stage
 	post := execinfrapb.PostProcessSpec{
 		Offset: uint64(offset),
 	}
+	p.SetLastStagePost(post, p.ResultTypes)
+
+	// do limit in step stage
 	if count != math.MaxInt64 {
-		post.Limit = uint64(count)
+		post = execinfrapb.PostProcessSpec{
+			Limit: uint64(count),
+		}
 	}
 	p.AddSingleGroupStage(
 		node,
