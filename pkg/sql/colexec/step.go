@@ -12,7 +12,6 @@ package colexec
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/cockroachdb/cockroach/pkg/col/coldata"
 )
@@ -61,8 +60,6 @@ func (c *stepOp) Next(ctx context.Context) coldata.Batch {
 		}
 		var filteredSel []uint16
 
-		fmt.Println("pre", length, sel[:length], "c.seen:", c.seen, "c.step:", c.step)
-
 		for i := uint16(0); i < length; i++ {
 			if (uint64(i)+c.seen)%c.step == 0 {
 				filteredSel = append(filteredSel, sel[i])
@@ -72,8 +69,6 @@ func (c *stepOp) Next(ctx context.Context) coldata.Batch {
 
 		bat.SetLength(uint16(len(filteredSel)))
 		copy(sel, filteredSel)
-
-		fmt.Println("post", len(filteredSel), filteredSel, "c.seen:", c.seen, "c.step:", c.step)
 
 		if len(filteredSel) != 0 {
 			break

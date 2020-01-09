@@ -352,6 +352,9 @@ func isSupported(spec *execinfrapb.ProcessorSpec) (bool, error) {
 		}
 		return true, nil
 
+	case core.Step != nil:
+		return true, nil
+
 	default:
 		return false, errors.Newf("unsupported processor core %q", core)
 	}
@@ -869,6 +872,13 @@ func NewColOperator(
 			}
 
 			result.ColumnTypes = append(spec.Input[0].ColumnTypes, *types.Int)
+
+		case core.Step != nil:
+			if err := checkNumIn(inputs, 1); err != nil {
+				return result, err
+			}
+			result.Op = NewStepOp(inputs[0], uint64(args.Spec.Core.Step.NumOfRows))
+			result.ColumnTypes = spec.Input[0].ColumnTypes
 
 		default:
 			return result, errors.Newf("unsupported processor core %q", core)
