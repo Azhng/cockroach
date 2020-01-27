@@ -164,6 +164,14 @@ func (a *avg_TYPEAgg) Compute(b coldata.Batch, inputIdxs []uint32) {
 	}
 }
 
+func (a *avg_TYPEAgg) Compute2(b coldata.Batch, inputIdxs []uint32, start, end uint16) {
+	panic("Not yet implmented")
+}
+
+func (a *avg_TYPEAgg) Finalize(output coldata.Vec, outputIdx uint16) {
+	panic("Not yet implemented")
+}
+
 func (a *avg_TYPEAgg) HandleEmptyInputScalar() {
 	a.scratch.nulls.SetNull(0)
 }

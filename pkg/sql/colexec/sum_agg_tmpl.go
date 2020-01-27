@@ -105,6 +105,14 @@ func (a *sum_TYPEAgg) SetOutputIndex(idx int) {
 	}
 }
 
+func (a *sum_TYPEAgg) Compute2(b coldata.Batch, inputIdxs []uint32, start, end uint16) {
+	panic("Not yet implemented")
+}
+
+func (a *sum_TYPEAgg) Finalize(output coldata.Vec, outputIdx uint16) {
+	panic("Not yet implemented")
+}
+
 func (a *sum_TYPEAgg) Compute(b coldata.Batch, inputIdxs []uint32) {
 	if a.done {
 		return

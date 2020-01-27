@@ -27,6 +27,7 @@ import (
 	"github.com/cockroachdb/apd"
 	"github.com/cockroachdb/cockroach/pkg/col/coldata"
 	"github.com/cockroachdb/cockroach/pkg/col/coltypes"
+
 	// {{/*
 	"github.com/cockroachdb/cockroach/pkg/sql/colexec/execerror"
 	// */}}
@@ -195,6 +196,14 @@ func (a *_AGG_TYPEAgg) Compute(b coldata.Batch, inputIdxs []uint32) {
 			}
 		},
 	)
+}
+
+func (a *_AGG_TYPEAgg) Compute2(b coldata.Batch, inputIdxs []uint32, start, end uint16) {
+	panic("Not yet implemented")
+}
+
+func (a *_AGG_TYPEAgg) Finalize(output coldata.Vec, outputIdx uint16) {
+	panic("Not yet implemented")
 }
 
 func (a *_AGG_TYPEAgg) HandleEmptyInputScalar() {

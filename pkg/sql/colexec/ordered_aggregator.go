@@ -12,6 +12,7 @@ package colexec
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/cockroachdb/cockroach/pkg/col/coldata"
 	"github.com/cockroachdb/cockroach/pkg/col/coltypes"
@@ -66,6 +67,9 @@ type orderedAggregator struct {
 		// for tests.
 		inputSize  int
 		outputSize int
+
+		// TODO(@azhng): doc
+		groupCnt int
 	}
 
 	// unsafeBatch is a coldata.Batch returned when only a subset of the
@@ -245,6 +249,38 @@ func (a *orderedAggregator) Next(ctx context.Context) coldata.Batch {
 
 	for a.scratch.resumeIdx < a.scratch.outputSize {
 		batch := a.input.Next(ctx)
+		// TODO(@azhng): build selection vector here
+		//               continually to do so until current
+		//               batch is exhausted
+
+		sels := make([][]uint16, 0) // TODO(@azhng): find a way to preallocate this
+
+		groupIdx := -1
+		batchSel := batch.Selection()
+		for i := uint16(0); i < batch.Length(); i++ {
+			if a.groupCol[i] {
+				sels = append(sels, make([]uint16, 0)) // TODO(@azhng): allocate when possible
+				groupIdx++
+			}
+			if batchSel == nil { // if the sel vector on the batch is nil, we just need to manually do it
+				sels[groupIdx] = append(sels[groupIdx], i)
+			} else {
+				sels[groupIdx] = append(sels[groupIdx], batchSel[i])
+			}
+		}
+
+		// pretty print
+		fmt.Printf("# of groups: %d, batchSize: %d\n", len(sels), coldata.BatchSize())
+		for i, row := range sels {
+			fmt.Printf("    sels[%d]: ", i)
+			for _, col := range row {
+				fmt.Printf("%d ", col)
+			}
+			fmt.Println()
+		}
+		fmt.Println()
+		// TODO(@azhng): ^^^ refactor
+
 		a.seenNonEmptyBatch = a.seenNonEmptyBatch || batch.Length() > 0
 		if !a.seenNonEmptyBatch {
 			// The input has zero rows.
@@ -312,6 +348,7 @@ func (a *orderedAggregator) reset() {
 	a.done = false
 	a.seenNonEmptyBatch = false
 	a.scratch.resumeIdx = 0
+	a.scratch.groupCnt = 0
 	for _, fn := range a.aggregateFuncs {
 		fn.Reset()
 	}

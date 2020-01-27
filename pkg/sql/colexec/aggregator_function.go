@@ -57,6 +57,13 @@ type aggregateFunc interface {
 	// batch tells the aggregate function that it should flush its results.
 	Compute(batch coldata.Batch, inputIdxs []uint32)
 
+	// TODO(@azhng): merge two interfaces, for testing purposes
+	Compute2(batch coldata.Batch, inputIdxs []uint32, start, end uint16)
+
+	// TODO(azhng): finalize the aggregation value and write to
+	//              the output vector at outputIdx
+	Finalize(output coldata.Vec, outputIdx uint16)
+
 	// HandleEmptyInputScalar populates the output for a case of an empty input
 	// when the aggregate function is in scalar context. The output must always
 	// be a single value (either null or zero, depending on the function).

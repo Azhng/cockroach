@@ -68,6 +68,14 @@ func (a *countAgg) SetOutputIndex(idx int) {
 	}
 }
 
+func (a *countAgg) Compute2(b coldata.Batch, inputIdxs []uint32, start, end uint16) {
+	panic("Not yet implemented")
+}
+
+func (a *countAgg) Finalize(output coldata.Vec, outputIdx uint16) {
+	panic("Not yet implemented")
+}
+
 func (a *countAgg) Compute(b coldata.Batch, inputIdxs []uint32) {
 	if a.done {
 		return

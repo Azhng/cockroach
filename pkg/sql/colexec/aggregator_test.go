@@ -126,6 +126,103 @@ func (tc *aggregatorTestCase) init() error {
 	return nil
 }
 
+// TODO(@azhng): delete me
+func TestScratch(t *testing.T) {
+	defer leaktest.AfterTest(t)()
+	testCases := []aggregatorTestCase{
+		{
+			aggFns: []execinfrapb.AggregatorSpec_Func{
+				execinfrapb.AggregatorSpec_BOOL_AND,
+				execinfrapb.AggregatorSpec_BOOL_OR,
+			},
+			aggCols: [][]uint32{
+				{1}, {1},
+			},
+			colTypes: []coltypes.T{coltypes.Int64, coltypes.Bool},
+			input: tuples{
+				{0, true},
+				{1, false},
+				{2, true},
+				{2, nil},
+				{3, false},
+				{3, nil},
+				{4, true},
+				{4, false},
+				{5, nil},
+			},
+			expected: tuples{
+				{true, true},
+				{false, false},
+				{true, true},
+				{false, false},
+				{false, true},
+				{nil, nil},
+			},
+			name: "scratch",
+		},
+	}
+
+	// Run tests with deliberate batch sizes and no selection vectors.
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.init(); err != nil {
+				t.Fatal(err)
+			}
+
+			tupleSource := newOpTestInput(uint16(tc.batchSize), tc.input, nil /* typs */)
+			a, err := NewOrderedAggregator(
+				testAllocator,
+				tupleSource,
+				tc.colTypes,
+				tc.aggFns,
+				tc.groupCols,
+				tc.aggCols,
+				false, /* isScalar */
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			out := newOpTestOutput(a, tc.expected)
+			// Explicitly reinitialize the aggregator with the given output batch
+			// size.
+			a.(*orderedAggregator).initWithInputAndOutputBatchSize(tc.batchSize, tc.outputBatchSize)
+			if err := out.VerifyAnyOrder(); err != nil {
+				t.Fatal(err)
+			}
+
+			// shadow the outer one
+			// lets focus on the ordered agg for now
+			aggTypes := []aggType{
+				{
+					new:  NewOrderedAggregator,
+					name: "ordered",
+				},
+			}
+
+			// Run randomized tests on this test case.
+			t.Run(fmt.Sprintf("Randomized"), func(t *testing.T) {
+				for _, agg := range aggTypes {
+					t.Run(agg.name, func(t *testing.T) {
+						runTests(t, []tuples{tc.input}, tc.expected, unorderedVerifier,
+							func(input []Operator) (Operator, error) {
+								return agg.new(
+									testAllocator,
+									input[0],
+									tc.colTypes,
+									tc.aggFns,
+									tc.groupCols,
+									tc.aggCols,
+									false, /* isScalar */
+								)
+							})
+					})
+				}
+			})
+		})
+	}
+}
+
 func TestAggregatorOneFunc(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 	testCases := []aggregatorTestCase{

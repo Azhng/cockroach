@@ -86,6 +86,14 @@ func (b *bool_OP_TYPEAgg) SetOutputIndex(idx int) {
 	}
 }
 
+func (b *bool_OP_TYPEAgg) Compute2(batch coldata.Batch, inputIdxs []uint32, start, end uint16) {
+	panic("Not yet implemented")
+}
+
+func (b *bool_OP_TYPEAgg) Finalize(output coldata.Vec, outputIdx uint16) {
+	panic("Not yet implemented")
+}
+
 func (b *bool_OP_TYPEAgg) Compute(batch coldata.Batch, inputIdxs []uint32) {
 	if b.done {
 		return
