@@ -80,6 +80,7 @@ type anyNotNull_TYPEAgg struct {
 	col                         _GOTYPESLICE
 	nulls                       *coldata.Nulls
 	curIdx                      int
+	curAgg                      _GOTYPE // TODO(@azhng): hack
 	foundNonNullForCurrentGroup bool
 }
 
@@ -109,12 +110,71 @@ func (a *anyNotNull_TYPEAgg) SetOutputIndex(idx int) {
 	}
 }
 
+// TODO(@azhng): write it in template later
 func (a *anyNotNull_TYPEAgg) Compute2(b coldata.Batch, inputIdxs []uint32, start, end uint16) {
-	panic("Not yet implemented")
+	inputLen := end - start
+	if inputLen == 0 {
+		// short circuit, not need to materialize
+		// it's caller's responsibility to perform materialization
+		return
+	}
+
+	vec, sel := b.ColVec(int(inputIdxs[0])), b.Selection()
+	col, nulls := vec._TemplateType(), vec.Nulls()
+
+	var isNull bool
+
+	if nulls.MaybeHasNulls() {
+		if sel != nil {
+			sel = sel[start:end]
+			for _, i := range sel {
+				isNull = nulls.NullAt(uint16(i))
+				if !a.foundNonNullForCurrentGroup && !isNull {
+					a.curAgg = execgen.UNSAFEGET(col, int(i))
+					a.foundNonNullForCurrentGroup = true
+				}
+			}
+		} else {
+			col = execgen.SLICE(col, 0, int(inputLen))
+			for execgen.RANGE(i, col, 0, int(inputLen)) {
+				isNull = nulls.NullAt(uint16(i))
+				if !a.foundNonNullForCurrentGroup && !isNull {
+					a.curAgg = execgen.UNSAFEGET(col, int(i))
+					a.foundNonNullForCurrentGroup = true
+				}
+			}
+		}
+	} else {
+		if sel != nil {
+			sel = sel[start:end]
+			for _, i := range sel {
+				isNull = false
+				if !a.foundNonNullForCurrentGroup && !isNull {
+					a.curAgg = execgen.UNSAFEGET(col, int(i))
+					a.foundNonNullForCurrentGroup = true
+				}
+			}
+		} else {
+			col = execgen.SLICE(col, 0, int(inputLen))
+			for execgen.RANGE(i, col, 0, int(inputLen)) {
+				isNull = false
+				if !a.foundNonNullForCurrentGroup && !isNull {
+					a.curAgg = execgen.UNSAFEGET(col, int(i))
+					a.foundNonNullForCurrentGroup = true
+				}
+			}
+		}
+	}
 }
 
 func (a *anyNotNull_TYPEAgg) Finalize(output coldata.Vec, outputIdx uint16) {
-	panic("Not yet implemented")
+	if !a.foundNonNullForCurrentGroup {
+		a.nulls.SetNull(uint16(a.curIdx))
+	} else {
+		vec := output._TemplateType()
+		execgen.SET(vec, int(outputIdx), a.curAgg)
+	}
+	a.Reset()
 }
 
 func (a *anyNotNull_TYPEAgg) Compute(b coldata.Batch, inputIdxs []uint32) {

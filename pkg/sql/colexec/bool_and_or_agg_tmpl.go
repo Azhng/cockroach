@@ -87,11 +87,43 @@ func (b *bool_OP_TYPEAgg) SetOutputIndex(idx int) {
 }
 
 func (b *bool_OP_TYPEAgg) Compute2(batch coldata.Batch, inputIdxs []uint32, start, end uint16) {
-	panic("Not yet implemented")
+	inputLen := end - start
+	if inputLen == 0 {
+		// short circuit, not need to materialize
+		// it's caller's responsibility to perform materialization
+		return
+	}
+	vec, sel := batch.ColVec(int(inputIdxs[0])), batch.Selection()
+	col, nulls := vec.Bool(), vec.Nulls()
+
+	if sel != nil {
+		sel = sel[start:end]
+		for _, i := range sel {
+			isNull := nulls.NullAt(uint16(i))
+			if !isNull {
+				_ASSIGN_BOOL_OP(b.curAgg, b.curAgg, col[i])
+				b.sawNonNull = true
+			}
+		}
+	} else {
+		col = col[start:end]
+		for i := range col {
+			isNull := nulls.NullAt(uint16(i))
+			if !isNull {
+				_ASSIGN_BOOL_OP(b.curAgg, b.curAgg, col[i])
+				b.sawNonNull = true
+			}
+		}
+	}
 }
 
 func (b *bool_OP_TYPEAgg) Finalize(output coldata.Vec, outputIdx uint16) {
-	panic("Not yet implemented")
+	if !b.sawNonNull {
+		b.nulls.SetNull(uint16(b.curIdx))
+	} else {
+		b.vec[b.curIdx] = b.curAgg
+	}
+	b.Reset()
 }
 
 func (b *bool_OP_TYPEAgg) Compute(batch coldata.Batch, inputIdxs []uint32) {

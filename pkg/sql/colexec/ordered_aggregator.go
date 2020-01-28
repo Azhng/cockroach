@@ -249,49 +249,6 @@ func (a *orderedAggregator) Next(ctx context.Context) coldata.Batch {
 
 	for a.scratch.resumeIdx < a.scratch.outputSize {
 		batch := a.input.Next(ctx)
-		// TODO(@azhng): build selection vector here
-		//               continually to do so until current
-		//               batch is exhausted
-
-		groupBounds := make([][2]uint16, 0) // TODO(@azhng): find a way to preallocate this
-
-		groupIdx := -1
-		for i := uint16(0); i < batch.Length(); i++ {
-			if a.groupCol[i] {
-				if groupIdx != -1 { // mark the end of the group
-					groupBounds[groupIdx][1] = i
-				}
-				groupIdx++
-				groupBounds = append(groupBounds, [2]uint16{})
-				groupBounds[groupIdx][0] = i // mark the start of the group
-			}
-		}
-
-		// if there is a single group in the entire batch
-		if groupIdx == -1 {
-			groupBounds = append(groupBounds, [2]uint16{})
-			groupBounds[0][0] = 0
-			groupBounds[0][1] = batch.Length()
-		} else {
-			groupBounds[groupIdx][1] = batch.Length()
-		}
-
-		sel := make([]uint16, batch.Length())
-		if batch.Selection() == nil && len(groupBounds) > 1 {
-			for i := uint16(0); i < batch.Length(); i++ {
-				sel[i] = i
-			}
-		} else {
-			copy(sel, batch.Selection())
-		}
-
-		// pretty print
-		fmt.Printf("# of groups: %d, batchSize: %d\n", len(groupBounds), coldata.BatchSize())
-		for i, bound := range groupBounds {
-			fmt.Printf("    groupBounds[%d]: %v, %v\n", i, bound, sel[bound[0]:bound[1]])
-		}
-		fmt.Println()
-		// TODO(@azhng): ^^^ refactor
 
 		a.seenNonEmptyBatch = a.seenNonEmptyBatch || batch.Length() > 0
 		if !a.seenNonEmptyBatch {
@@ -308,10 +265,58 @@ func (a *orderedAggregator) Next(ctx context.Context) coldata.Batch {
 				a.scratch.resumeIdx = 0
 			}
 		} else {
-			for i, fn := range a.aggregateFuncs {
-				fn.Compute(batch, a.aggCols[i])
+			// TODO(@azhng): build selection vector here
+			//               continually to do so until current
+			//               batch is exhausted
+
+			groupBounds := make([][2]uint16, 0) // TODO(@azhng): find a way to preallocate this
+
+			groupIdx := -1
+			for i := uint16(0); i < batch.Length(); i++ {
+				if a.groupCol[i] {
+					if groupIdx != -1 { // mark the end of the group
+						groupBounds[groupIdx][1] = i
+					}
+					groupIdx++
+					groupBounds = append(groupBounds, [2]uint16{})
+					groupBounds[groupIdx][0] = i // mark the start of the group
+				}
 			}
-			a.scratch.resumeIdx = a.aggregateFuncs[0].CurrentOutputIndex()
+
+			// if there is a single group in the entire batch
+			if groupIdx == -1 {
+				groupBounds = append(groupBounds, [2]uint16{})
+				groupBounds[0][0] = 0
+				groupBounds[0][1] = batch.Length()
+			} else {
+				groupBounds[groupIdx][1] = batch.Length()
+			}
+
+			sel := make([]uint16, batch.Length())
+			if batch.Selection() == nil && len(groupBounds) > 1 {
+				for i := uint16(0); i < batch.Length(); i++ {
+					sel[i] = i
+				}
+			} else {
+				copy(sel, batch.Selection())
+			}
+
+			// TODO(@azhng): pretty print, delete later
+			fmt.Printf("# of groups: %d, batchSize: %d\n", len(groupBounds), coldata.BatchSize())
+			for i, bound := range groupBounds {
+				fmt.Printf("    groupBounds[%d]: %v, %v\n", i, bound, sel[bound[0]:bound[1]])
+			}
+			fmt.Println()
+			// TODO(@azhng): ^^^ refactor
+
+			// TODO(@azhng): implement the agg functions
+			panic("Not yet implemented")
+
+			//for i, fn := range a.aggregateFuncs {
+			//	fn.Compute(batch, a.aggCols[i])
+			//}
+
+			//a.scratch.resumeIdx = a.aggregateFuncs[0].CurrentOutputIndex()
 		}
 		if batch.Length() == 0 {
 			a.done = true
