@@ -253,30 +253,42 @@ func (a *orderedAggregator) Next(ctx context.Context) coldata.Batch {
 		//               continually to do so until current
 		//               batch is exhausted
 
-		sels := make([][]uint16, 0) // TODO(@azhng): find a way to preallocate this
+		groupBounds := make([][2]uint16, 0) // TODO(@azhng): find a way to preallocate this
 
 		groupIdx := -1
-		batchSel := batch.Selection()
 		for i := uint16(0); i < batch.Length(); i++ {
 			if a.groupCol[i] {
-				sels = append(sels, make([]uint16, 0)) // TODO(@azhng): allocate when possible
+				if groupIdx != -1 { // mark the end of the group
+					groupBounds[groupIdx][1] = i
+				}
 				groupIdx++
-			}
-			if batchSel == nil { // if the sel vector on the batch is nil, we just need to manually do it
-				sels[groupIdx] = append(sels[groupIdx], i)
-			} else {
-				sels[groupIdx] = append(sels[groupIdx], batchSel[i])
+				groupBounds = append(groupBounds, [2]uint16{})
+				groupBounds[groupIdx][0] = i // mark the start of the group
 			}
 		}
 
-		// pretty print
-		fmt.Printf("# of groups: %d, batchSize: %d\n", len(sels), coldata.BatchSize())
-		for i, row := range sels {
-			fmt.Printf("    sels[%d]: ", i)
-			for _, col := range row {
-				fmt.Printf("%d ", col)
+		// if there is a single group in the entire batch
+		if groupIdx == -1 {
+			groupBounds = append(groupBounds, [2]uint16{})
+			groupBounds[0][0] = 0
+			groupBounds[0][1] = batch.Length()
+		} else {
+			groupBounds[groupIdx][1] = batch.Length()
+		}
+
+		sel := make([]uint16, batch.Length())
+		if batch.Selection() == nil && len(groupBounds) > 1 {
+			for i := uint16(0); i < batch.Length(); i++ {
+				sel[i] = i
 			}
-			fmt.Println()
+		} else {
+			copy(sel, batch.Selection())
+		}
+
+		// pretty print
+		fmt.Printf("# of groups: %d, batchSize: %d\n", len(groupBounds), coldata.BatchSize())
+		for i, bound := range groupBounds {
+			fmt.Printf("    groupBounds[%d]: %v, %v\n", i, bound, sel[bound[0]:bound[1]])
 		}
 		fmt.Println()
 		// TODO(@azhng): ^^^ refactor
