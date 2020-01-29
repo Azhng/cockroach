@@ -275,6 +275,7 @@ func (a *orderedAggregator) Next(ctx context.Context) coldata.Batch {
 					for aggFnIdx, fn := range a.aggregateFuncs {
 						fn.Finalize(a.scratch.ColVec(aggFnIdx), uint16(a.scratch.resumeIdx))
 					}
+					a.scratch.resumeIdx++
 				}
 				a.done = true
 				break
@@ -338,13 +339,15 @@ func (a *orderedAggregator) Next(ctx context.Context) coldata.Batch {
 					fn.Compute2(batch, a.aggCols[aggFnIdx], bound[0], bound[1])
 					// we only finalize the agg result if we are sure we have
 					// finished processing the entire group
-					if groupIdx != len(groupBounds) { // if this is not the last group in the batch
-						fn.Finalize(a.scratch.ColVec(aggFnIdx), uint16(a.scratch.resumeIdx))
-					} else {
+					if groupIdx == len(groupBounds)-1 { // if this is the last group in the batch
 						a.scratch.pendingAggGroup = true
+					} else {
+						fn.Finalize(a.scratch.ColVec(aggFnIdx), uint16(a.scratch.resumeIdx))
 					}
 				}
-				a.scratch.resumeIdx++
+				if !a.scratch.pendingAggGroup {
+					a.scratch.resumeIdx++
+				}
 			}
 
 			// TODO(@azhng): ^^^ refactor

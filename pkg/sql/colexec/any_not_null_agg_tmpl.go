@@ -87,8 +87,8 @@ type anyNotNull_TYPEAgg struct {
 func (a *anyNotNull_TYPEAgg) Init(groups []bool, vec coldata.Vec) {
 	a.groups = groups
 	a.vec = vec
-	a.col = vec._TemplateType()
-	a.nulls = vec.Nulls()
+	//a.col = vec._TemplateType()
+	//a.nulls = vec.Nulls()
 	a.Reset()
 }
 
@@ -96,7 +96,7 @@ func (a *anyNotNull_TYPEAgg) Reset() {
 	a.curIdx = -1
 	a.done = false
 	a.foundNonNullForCurrentGroup = false
-	a.nulls.UnsetNulls()
+	//a.nulls.UnsetNulls()
 }
 
 func (a *anyNotNull_TYPEAgg) CurrentOutputIndex() int {

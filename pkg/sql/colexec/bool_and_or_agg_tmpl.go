@@ -61,15 +61,14 @@ type bool_OP_TYPEAgg struct {
 
 func (b *bool_OP_TYPEAgg) Init(groups []bool, vec coldata.Vec) {
 	b.groups = groups
-	b.vec = vec.Bool()
-	b.nulls = vec.Nulls()
 	b.Reset()
 }
 
 func (b *bool_OP_TYPEAgg) Reset() {
 	b.curIdx = -1
-	b.nulls.UnsetNulls()
+	//b.nulls.UnsetNulls()
 	b.done = false
+	b.sawNonNull = false
 	// _DEFAULT_VAL indicates whether we are doing an AND aggregate or OR aggregate.
 	// For bool_and the _DEFAULT_VAL is true and for bool_or the _DEFAULT_VAL is false.
 	b.curAgg = _DEFAULT_VAL
@@ -94,7 +93,7 @@ func (b *bool_OP_TYPEAgg) Compute2(batch coldata.Batch, inputIdxs []uint32, star
 		return
 	}
 	vec, sel := batch.ColVec(int(inputIdxs[0])), batch.Selection()
-	col, nulls := vec.Bool(), vec.Nulls().Slice(uint64(start), uint64(end))
+	col, nulls := vec.Bool(), vec.Nulls()
 
 	if sel != nil {
 		sel = sel[start:end]
@@ -107,8 +106,9 @@ func (b *bool_OP_TYPEAgg) Compute2(batch coldata.Batch, inputIdxs []uint32, star
 		}
 	} else {
 		col = col[start:end]
+		//*nulls = nulls.Slice(uint64(start), uint64(end))
 		for i := range col {
-			isNull := nulls.NullAt(uint16(i))
+			isNull := nulls.NullAt(start + uint16(i))
 			if !isNull {
 				_ASSIGN_BOOL_OP(b.curAgg, b.curAgg, col[i])
 				b.sawNonNull = true
@@ -120,7 +120,7 @@ func (b *bool_OP_TYPEAgg) Compute2(batch coldata.Batch, inputIdxs []uint32, star
 func (b *bool_OP_TYPEAgg) Finalize(output coldata.Vec, outputIdx uint16) {
 	vec, nulls := output.Bool(), output.Nulls()
 	if !b.sawNonNull {
-		nulls.SetNull(uint16(outputIdx))
+		nulls.SetNull(outputIdx)
 	} else {
 		vec[outputIdx] = b.curAgg
 	}
