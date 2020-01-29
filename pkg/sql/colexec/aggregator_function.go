@@ -30,6 +30,7 @@ import (
 // at the current index inclusive for a correct aggregation.
 type aggregateFunc interface {
 
+	// TODO(@azhng): change interface to take no param
 	// Init sets the groups for the aggregation and the output vector. Each index
 	// in groups corresponds to a column value in the input batch. true represents
 	// the first value of a new group.
@@ -38,27 +39,6 @@ type aggregateFunc interface {
 	// Reset resets the aggregate function for another run. Primarily used for
 	// benchmarks.
 	Reset()
-
-	// TODO(@azhng): should be no longer necessary
-	// CurrentOutputIndex returns the current index in the output vector that the
-	// aggregate function is writing to. All indices < the index returned are
-	// finished aggregations for previous groups. A negative index may be returned
-	// to signify an aggregate function that has not yet performed any
-	// computation.
-	CurrentOutputIndex() int
-
-	// TODO(@azhng): should be no longer necessary
-	// SetOutputIndex sets the output index to write to. The value for the current
-	// index is carried over. Note that calling SetOutputIndex is a noop if
-	// CurrentOutputIndex returns a negative value (i.e. the aggregate function
-	// has not yet performed any computation). This method also has the side
-	// effect of clearing the NULLs bitmap of the output buffer past the given
-	// index.
-	SetOutputIndex(idx int)
-
-	// Compute computes the aggregation on the input batch. A zero-length input
-	// batch tells the aggregate function that it should flush its results.
-	Compute(batch coldata.Batch, inputIdxs []uint32)
 
 	// TODO(@azhng): merge two interfaces, for testing purposes
 	Compute2(batch coldata.Batch, inputIdxs []uint32, start, end uint16)

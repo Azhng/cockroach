@@ -19,7 +19,9 @@
 
 package colexec
 
-import "github.com/cockroachdb/cockroach/pkg/col/coldata"
+import (
+	"github.com/cockroachdb/cockroach/pkg/col/coldata"
+)
 
 // newCountRowAgg creates a COUNT(*) aggregate, which counts every row in the
 // result unconditionally.
@@ -42,6 +44,7 @@ type countAgg struct {
 	curIdx   int
 	done     bool
 	countRow bool
+	curAgg   int64
 }
 
 func (a *countAgg) Init(groups []bool, vec coldata.Vec) {
@@ -55,6 +58,7 @@ func (a *countAgg) Reset() {
 	a.curIdx = -1
 	a.nulls.UnsetNulls()
 	a.done = false
+	a.curAgg = int64(0)
 }
 
 func (a *countAgg) CurrentOutputIndex() int {
@@ -69,11 +73,32 @@ func (a *countAgg) SetOutputIndex(idx int) {
 }
 
 func (a *countAgg) Compute2(b coldata.Batch, inputIdxs []uint32, start, end uint16) {
-	panic("Not yet implemented")
+	inputLen := end - start
+
+	vec, sel := b.ColVec(int(inputIdxs[0])), b.Selection()
+	nulls := vec.Nulls()
+
+	// If this is a COUNT(col) aggregator and there are nulls in this batch,
+	// we must check each value for nullity. Note that it is only legal to do a
+	// COUNT aggregate on a single column.
+	if !a.countRow && b.ColVec(int(inputIdxs[0])).MaybeHasNulls() {
+		if sel != nil {
+			for _, i := range sel[start:end] {
+				_ACCUMULATE_COUNT2(a, nulls, i, true)
+			}
+		} else {
+			for i := start; i < end; i++ {
+				_ACCUMULATE_COUNT2(a, nulls, i, true)
+			}
+		}
+	} else {
+		a.curAgg = int64(inputLen)
+	}
 }
 
 func (a *countAgg) Finalize(output coldata.Vec, outputIdx uint16) {
-	panic("Not yet implemented")
+	output.Int64()[outputIdx] = a.curAgg
+	a.Reset()
 }
 
 func (a *countAgg) Compute(b coldata.Batch, inputIdxs []uint32) {
@@ -125,8 +150,30 @@ func _ACCUMULATE_COUNT(a *countAgg, nulls *coldata.Nulls, i int, _COL_WITH_NULLS
 
 	if a.groups[i] {
 		a.curIdx++
-		a.vec[a.curIdx] = 0
+		a.vec[a.curIdx] = a.curAgg
 	}
+	y := int64(0)
+	// {{if .ColWithNulls}}
+	if !nulls.NullAt(uint16(i)) {
+		y = 1
+	}
+	// {{else}}
+	y = int64(1)
+	// {{end}}
+	a.curAgg += y
+	// {{end}}
+
+	// {{/*
+} // */}}
+
+// TODO(@azhng): replace _ACCUMULATE_COUNT with this
+// {{/*
+// _ACCUMULATE_COUNT2 aggregates the value at index i into the count aggregate.
+// _COL_WITH_NULLS indicates whether we have COUNT aggregate (i.e. not
+// COUNT_ROWS) and there maybe NULLs.
+func _ACCUMULATE_COUNT2(a *countAgg, nulls *coldata.Nulls, i int, _COL_WITH_NULLS bool) { // */}}
+	// {{define "accumulateCount2" -}}
+
 	var y int64
 	// {{if .ColWithNulls}}
 	y = int64(0)
@@ -136,12 +183,13 @@ func _ACCUMULATE_COUNT(a *countAgg, nulls *coldata.Nulls, i int, _COL_WITH_NULLS
 	// {{else}}
 	y = int64(1)
 	// {{end}}
-	a.vec[a.curIdx] += y
+	a.curAgg += y
 	// {{end}}
 
 	// {{/*
 } // */}}
 
+// TODO(@azhng): fix this
 func (a *countAgg) HandleEmptyInputScalar() {
 	a.vec[0] = 0
 }

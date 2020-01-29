@@ -26,8 +26,12 @@ func genCountAgg(wr io.Writer) error {
 
 	s := string(t)
 
-	accumulateSum := makeFunctionRegex("_ACCUMULATE_COUNT", 4)
-	s = accumulateSum.ReplaceAllString(s, `{{template "accumulateCount" buildDict "Global" . "ColWithNulls" $4}}`)
+	accumulateCount := makeFunctionRegex("_ACCUMULATE_COUNT", 4)
+	s = accumulateCount.ReplaceAllString(s, `{{template "accumulateCount" buildDict "Global" . "ColWithNulls" $4}}`)
+
+	// TODO(@azhng): replace accumulateCount with this
+	accumulateCount2 := makeFunctionRegex("_ACCUMULATE_COUNT2", 4)
+	s = accumulateCount2.ReplaceAllString(s, `{{template "accumulateCount2" buildDict "Global" . "ColWithNulls" $4}}`)
 
 	tmpl, err := template.New("count_agg").Funcs(template.FuncMap{"buildDict": buildDict}).Parse(s)
 	if err != nil {
