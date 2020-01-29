@@ -68,8 +68,9 @@ type orderedAggregator struct {
 		inputSize  int
 		outputSize int
 
-		// TODO(@azhng): doc
-		groupCnt int
+		// TODO(@azhng): doc, whether or not if there is a pending agg func running
+		//               on a group
+		pendingAggGroup bool
 	}
 
 	// unsafeBatch is a coldata.Batch returned when only a subset of the
@@ -269,6 +270,16 @@ func (a *orderedAggregator) Next(ctx context.Context) coldata.Batch {
 			//               continually to do so until current
 			//               batch is exhausted
 
+			if batch.Length() == 0 {
+				if a.scratch.pendingAggGroup {
+					for aggFnIdx, fn := range a.aggregateFuncs {
+						fn.Finalize(a.scratch.ColVec(aggFnIdx), uint16(a.scratch.resumeIdx))
+					}
+				}
+				a.done = true
+				break
+			}
+
 			groupBounds := make([][2]uint16, 0) // TODO(@azhng): find a way to preallocate this
 
 			groupIdx := -1
@@ -292,6 +303,7 @@ func (a *orderedAggregator) Next(ctx context.Context) coldata.Batch {
 				groupBounds[groupIdx][1] = batch.Length()
 			}
 
+			// TODO(@azhng): for printing purposes, not necessary, delete later
 			sel := make([]uint16, batch.Length())
 			if batch.Selection() == nil && len(groupBounds) > 1 {
 				for i := uint16(0); i < batch.Length(); i++ {
@@ -309,18 +321,39 @@ func (a *orderedAggregator) Next(ctx context.Context) coldata.Batch {
 			fmt.Println()
 			// TODO(@azhng): ^^^ refactor
 
-			// TODO(@azhng): implement the agg functions
-			panic("Not yet implemented")
+			// if we are starting with a new group in this batch and
+			// there is a pending aggregation group, then we finalize
+			// the result of the previous group and increment the
+			// resume index
+			if a.scratch.pendingAggGroup && a.groupCol[0] {
+				for aggFnIdx, fn := range a.aggregateFuncs {
+					fn.Finalize(a.scratch.ColVec(aggFnIdx), uint16(a.scratch.resumeIdx))
+				}
+				a.scratch.resumeIdx++
+				a.scratch.pendingAggGroup = false
+			}
+
+			for groupIdx, bound := range groupBounds {
+				for aggFnIdx, fn := range a.aggregateFuncs {
+					fn.Compute2(batch, a.aggCols[aggFnIdx], bound[0], bound[1])
+					// we only finalize the agg result if we are sure we have
+					// finished processing the entire group
+					if groupIdx != len(groupBounds) { // if this is not the last group in the batch
+						fn.Finalize(a.scratch.ColVec(aggFnIdx), uint16(a.scratch.resumeIdx))
+					} else {
+						a.scratch.pendingAggGroup = true
+					}
+				}
+				a.scratch.resumeIdx++
+			}
+
+			// TODO(@azhng): ^^^ refactor
 
 			//for i, fn := range a.aggregateFuncs {
 			//	fn.Compute(batch, a.aggCols[i])
 			//}
 
 			//a.scratch.resumeIdx = a.aggregateFuncs[0].CurrentOutputIndex()
-		}
-		if batch.Length() == 0 {
-			a.done = true
-			break
 		}
 		// zero out a.groupCol. This is necessary because distinct ORs the
 		// uniqueness of a value with the groupCol, allowing the operators to be
@@ -365,7 +398,6 @@ func (a *orderedAggregator) reset() {
 	a.done = false
 	a.seenNonEmptyBatch = false
 	a.scratch.resumeIdx = 0
-	a.scratch.groupCnt = 0
 	for _, fn := range a.aggregateFuncs {
 		fn.Reset()
 	}

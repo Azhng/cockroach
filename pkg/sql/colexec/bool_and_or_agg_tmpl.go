@@ -94,7 +94,7 @@ func (b *bool_OP_TYPEAgg) Compute2(batch coldata.Batch, inputIdxs []uint32, star
 		return
 	}
 	vec, sel := batch.ColVec(int(inputIdxs[0])), batch.Selection()
-	col, nulls := vec.Bool(), vec.Nulls()
+	col, nulls := vec.Bool(), vec.Nulls().Slice(uint64(start), uint64(end))
 
 	if sel != nil {
 		sel = sel[start:end]
@@ -118,10 +118,11 @@ func (b *bool_OP_TYPEAgg) Compute2(batch coldata.Batch, inputIdxs []uint32, star
 }
 
 func (b *bool_OP_TYPEAgg) Finalize(output coldata.Vec, outputIdx uint16) {
+	vec, nulls := output.Bool(), output.Nulls()
 	if !b.sawNonNull {
-		b.nulls.SetNull(uint16(b.curIdx))
+		nulls.SetNull(uint16(outputIdx))
 	} else {
-		b.vec[b.curIdx] = b.curAgg
+		vec[outputIdx] = b.curAgg
 	}
 	b.Reset()
 }

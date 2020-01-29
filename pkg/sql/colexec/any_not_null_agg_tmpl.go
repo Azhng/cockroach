@@ -169,7 +169,7 @@ func (a *anyNotNull_TYPEAgg) Compute2(b coldata.Batch, inputIdxs []uint32, start
 
 func (a *anyNotNull_TYPEAgg) Finalize(output coldata.Vec, outputIdx uint16) {
 	if !a.foundNonNullForCurrentGroup {
-		a.nulls.SetNull(uint16(a.curIdx))
+		output.Nulls().SetNull(uint16(outputIdx))
 	} else {
 		vec := output._TemplateType()
 		execgen.SET(vec, int(outputIdx), a.curAgg)

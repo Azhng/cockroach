@@ -39,12 +39,15 @@ type aggregateFunc interface {
 	// benchmarks.
 	Reset()
 
+	// TODO(@azhng): should be no longer necessary
 	// CurrentOutputIndex returns the current index in the output vector that the
 	// aggregate function is writing to. All indices < the index returned are
 	// finished aggregations for previous groups. A negative index may be returned
 	// to signify an aggregate function that has not yet performed any
 	// computation.
 	CurrentOutputIndex() int
+
+	// TODO(@azhng): should be no longer necessary
 	// SetOutputIndex sets the output index to write to. The value for the current
 	// index is carried over. Note that calling SetOutputIndex is a noop if
 	// CurrentOutputIndex returns a negative value (i.e. the aggregate function
