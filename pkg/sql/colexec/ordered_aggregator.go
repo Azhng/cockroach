@@ -12,7 +12,6 @@ package colexec
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/cockroachdb/cockroach/pkg/col/coldata"
 	"github.com/cockroachdb/cockroach/pkg/col/coltypes"
@@ -256,6 +255,7 @@ func (a *orderedAggregator) Next(ctx context.Context) coldata.Batch {
 			// The input has zero rows.
 			if a.isScalar {
 				for _, fn := range a.aggregateFuncs {
+					// TODO(@azhng): change according to new API
 					fn.HandleEmptyInputScalar()
 				}
 				// All aggregate functions will output a single value.
@@ -266,12 +266,12 @@ func (a *orderedAggregator) Next(ctx context.Context) coldata.Batch {
 				a.scratch.resumeIdx = 0
 			}
 		} else {
-			// TODO(@azhng): build selection vector here
-			//               continually to do so until current
-			//               batch is exhausted
+			// TODO(@azhng): build selection group bound
+			//               beware of the presence of selection vector
 
 			if batch.Length() == 0 {
 				if a.scratch.pendingAggGroup {
+					//fmt.Printf("      Flushing last group: resumeIdx %d\n", a.scratch.resumeIdx)
 					for aggFnIdx, fn := range a.aggregateFuncs {
 						fn.Finalize(a.scratch.ColVec(aggFnIdx), uint16(a.scratch.resumeIdx))
 					}
@@ -281,17 +281,44 @@ func (a *orderedAggregator) Next(ctx context.Context) coldata.Batch {
 				break
 			}
 
-			groupBounds := make([][2]uint16, 0) // TODO(@azhng): find a way to preallocate this
+			// TODO(@azhng): better naming? Is it really necessary
+			firstElemIdx := uint16(0)
+			if batch.Selection() != nil {
+				firstElemIdx = batch.Selection()[0]
+			}
 
-			groupIdx := -1
-			for i := uint16(0); i < batch.Length(); i++ {
-				if a.groupCol[i] {
-					if groupIdx != -1 { // mark the end of the group
-						groupBounds[groupIdx][1] = i
+			// TODO(@azhng): for printing purposes, not necessary, delete later
+			//               actually might be useful
+			sel := make([]uint16, batch.Length())
+			if batch.Selection() == nil {
+				for i := uint16(0); i < batch.Length(); i++ {
+					sel[i] = i
+				}
+			} else {
+				copy(sel, batch.Selection())
+			}
+
+			groupIdx := 0
+			groupBounds := make([][2]uint16, 1) // TODO(@azhng): find a way to preallocate this
+
+			groupBounds[0][0] = 0
+
+			for i := uint16(1); i < batch.Length(); i++ {
+				// TODO(@azhng): use variable, also find a more elegant way of writing this
+				if batch.Selection() != nil {
+					if a.groupCol[batch.Selection()[i]] {
+						groupBounds[groupIdx][1] = i // mark the end of the group
+						groupIdx++
+						groupBounds = append(groupBounds, [2]uint16{})
+						groupBounds[groupIdx][0] = i // mark the start of the group
 					}
-					groupIdx++
-					groupBounds = append(groupBounds, [2]uint16{})
-					groupBounds[groupIdx][0] = i // mark the start of the group
+				} else {
+					if a.groupCol[i] {
+						groupBounds[groupIdx][1] = i
+						groupIdx++
+						groupBounds = append(groupBounds, [2]uint16{})
+						groupBounds[groupIdx][0] = i // mark the start of the group
+					}
 				}
 			}
 
@@ -304,29 +331,12 @@ func (a *orderedAggregator) Next(ctx context.Context) coldata.Batch {
 				groupBounds[groupIdx][1] = batch.Length()
 			}
 
-			// TODO(@azhng): for printing purposes, not necessary, delete later
-			sel := make([]uint16, batch.Length())
-			if batch.Selection() == nil && len(groupBounds) > 1 {
-				for i := uint16(0); i < batch.Length(); i++ {
-					sel[i] = i
-				}
-			} else {
-				copy(sel, batch.Selection())
-			}
-
-			// TODO(@azhng): pretty print, delete later
-			fmt.Printf("# of groups: %d, batchSize: %d\n", len(groupBounds), coldata.BatchSize())
-			for i, bound := range groupBounds {
-				fmt.Printf("    groupBounds[%d]: %v, %v\n", i, bound, sel[bound[0]:bound[1]])
-			}
-			fmt.Println()
-			// TODO(@azhng): ^^^ refactor
-
 			// if we are starting with a new group in this batch and
 			// there is a pending aggregation group, then we finalize
 			// the result of the previous group and increment the
 			// resume index
-			if a.scratch.pendingAggGroup && a.groupCol[0] {
+			if a.scratch.pendingAggGroup && a.groupCol[firstElemIdx] {
+				//fmt.Printf("Flushing pendingAggGroup: resumeIdx: %d\n", a.scratch.resumeIdx)
 				for aggFnIdx, fn := range a.aggregateFuncs {
 					fn.Finalize(a.scratch.ColVec(aggFnIdx), uint16(a.scratch.resumeIdx))
 				}
@@ -334,7 +344,10 @@ func (a *orderedAggregator) Next(ctx context.Context) coldata.Batch {
 				a.scratch.pendingAggGroup = false
 			}
 
+			// TODO(@azhng): pretty print, delete later
+			//fmt.Printf("# of groups: %d, batchSize: %d, pendingAggGroup: %t, batchLength: %d, a.groupCol[%d]: %t\n", len(groupBounds), coldata.BatchSize(), a.scratch.pendingAggGroup, batch.Length(), sel[0], a.groupCol[sel[0]])
 			for groupIdx, bound := range groupBounds {
+				//fmt.Printf("    groupBounds[%d]: %v, %v\n", groupIdx, bound, sel[bound[0]:bound[1]])
 				for aggFnIdx, fn := range a.aggregateFuncs {
 					fn.Compute2(batch, a.aggCols[aggFnIdx], bound[0], bound[1])
 					// we only finalize the agg result if we are sure we have
@@ -343,13 +356,15 @@ func (a *orderedAggregator) Next(ctx context.Context) coldata.Batch {
 						a.scratch.pendingAggGroup = true
 					} else {
 						fn.Finalize(a.scratch.ColVec(aggFnIdx), uint16(a.scratch.resumeIdx))
+						a.scratch.pendingAggGroup = false
 					}
 				}
 				if !a.scratch.pendingAggGroup {
 					a.scratch.resumeIdx++
+				} else { // TODO(@azhng): delete this else clause
+					//fmt.Printf("      Flushing within batch: resumeIdx: %d\n", a.scratch.resumeIdx)
 				}
 			}
-
 			// TODO(@azhng): ^^^ refactor
 
 			//for i, fn := range a.aggregateFuncs {
