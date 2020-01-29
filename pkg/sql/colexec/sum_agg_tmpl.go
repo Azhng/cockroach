@@ -87,7 +87,7 @@ func (a *sum_TYPEAgg) Init(groups []bool, v coldata.Vec) {
 }
 
 func (a *sum_TYPEAgg) Reset() {
-	a.scratch.curAgg = a.scratch.vec[0]
+	a.scratch.curAgg = zero_TYPEColumn[0]
 	a.scratch.curIdx = -1
 	a.scratch.foundNonNullForCurrentGroup = false
 	a.scratch.nulls.UnsetNulls()
@@ -106,11 +106,44 @@ func (a *sum_TYPEAgg) SetOutputIndex(idx int) {
 }
 
 func (a *sum_TYPEAgg) Compute2(b coldata.Batch, inputIdxs []uint32, start, end uint16) {
-	panic("Not yet implemented")
+	vec, sel := b.ColVec(int(inputIdxs[0])), b.Selection()
+	col, nulls := vec._TemplateType(), vec.Nulls()
+	if nulls.MaybeHasNulls() {
+		if sel != nil {
+			sel = sel[start:end]
+			for _, i := range sel {
+				_ACCUMULATE_SUM2(a, nulls, i, true)
+			}
+		} else {
+			col = col[start:end]
+			for i := range col {
+				_ACCUMULATE_SUM2(a, nulls, i, true)
+			}
+		}
+	} else {
+		if sel != nil {
+			sel = sel[start:end]
+			for _, i := range sel {
+				_ACCUMULATE_SUM2(a, nulls, i, false)
+			}
+		} else {
+			col = col[start:end]
+			for i := range col {
+				_ACCUMULATE_SUM2(a, nulls, i, false)
+			}
+		}
+	}
 }
 
 func (a *sum_TYPEAgg) Finalize(output coldata.Vec, outputIdx uint16) {
-	panic("Not yet implemented")
+	if !a.scratch.foundNonNullForCurrentGroup {
+		output.Nulls().SetNull(outputIdx)
+	} else {
+		vec := output._TemplateType()
+		vec[outputIdx] = a.scratch.curAgg
+	}
+	a.scratch.curAgg = zero_TYPEColumn[0]
+	a.Reset()
 }
 
 func (a *sum_TYPEAgg) Compute(b coldata.Batch, inputIdxs []uint32) {
@@ -198,6 +231,30 @@ func _ACCUMULATE_SUM(a *sum_TYPEAgg, nulls *coldata.Nulls, i int, _HAS_NULLS boo
 		a.scratch.foundNonNullForCurrentGroup = false
 		// {{ end }}
 	}
+	var isNull bool
+	// {{ if .HasNulls }}
+	isNull = nulls.NullAt(uint16(i))
+	// {{ else }}
+	isNull = false
+	// {{ end }}
+	if !isNull {
+		_ASSIGN_ADD("a.scratch.curAgg", "a.scratch.curAgg", "col[i]")
+		a.scratch.foundNonNullForCurrentGroup = true
+	}
+	// {{end}}
+
+	// {{/*
+} // */}}
+
+// TODO(@azhng): replace _ACCUMULATE_SUM with this
+// {{/*
+// _ACCUMULATE_SUM2 adds the value of the ith row to the output for the current
+// group. If this is the first row of a new group, and no non-nulls have been
+// found for the current group, then the output for the current group is set to
+// null.
+func _ACCUMULATE_SUM2(a *sum_TYPEAgg, nulls *coldata.Nulls, i int, _HAS_NULLS bool) { // */}}
+
+	// {{define "accumulateSum2"}}
 	var isNull bool
 	// {{ if .HasNulls }}
 	isNull = nulls.NullAt(uint16(i))

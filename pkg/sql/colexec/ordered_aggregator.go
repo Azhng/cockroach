@@ -221,7 +221,8 @@ func (a *orderedAggregator) Next(ctx context.Context) coldata.Batch {
 				)
 				// Now we need to restore the desired length for the Vec.
 				vec.SetLength(a.scratch.inputSize)
-				a.aggregateFuncs[i].SetOutputIndex(newResumeIdx)
+				// TODO(@azhng): pending delete
+				//a.aggregateFuncs[i].SetOutputIndex(newResumeIdx)
 			}
 		})
 		a.scratch.resumeIdx = newResumeIdx

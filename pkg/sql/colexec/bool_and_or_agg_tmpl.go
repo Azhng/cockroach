@@ -65,9 +65,6 @@ func (b *bool_OP_TYPEAgg) Init(groups []bool, vec coldata.Vec) {
 }
 
 func (b *bool_OP_TYPEAgg) Reset() {
-	b.curIdx = -1
-	//b.nulls.UnsetNulls()
-	b.done = false
 	b.sawNonNull = false
 	// _DEFAULT_VAL indicates whether we are doing an AND aggregate or OR aggregate.
 	// For bool_and the _DEFAULT_VAL is true and for bool_or the _DEFAULT_VAL is false.
@@ -106,9 +103,10 @@ func (b *bool_OP_TYPEAgg) Compute2(batch coldata.Batch, inputIdxs []uint32, star
 		}
 	} else {
 		col = col[start:end]
-		//*nulls = nulls.Slice(uint64(start), uint64(end))
+		//*nulls = nulls.Slice(uint64(start), uint64(end)) // TODO: figure out why I cannot slice nulls
 		for i := range col {
 			isNull := nulls.NullAt(start + uint16(i))
+			//isNull := nulls.NullAt(uint16(i))
 			if !isNull {
 				_ASSIGN_BOOL_OP(b.curAgg, b.curAgg, col[i])
 				b.sawNonNull = true

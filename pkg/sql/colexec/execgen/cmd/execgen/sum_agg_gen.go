@@ -39,6 +39,10 @@ func genSumAgg(wr io.Writer) error {
 	accumulateSum := makeFunctionRegex("_ACCUMULATE_SUM", 4)
 	s = accumulateSum.ReplaceAllString(s, `{{template "accumulateSum" buildDict "Global" . "HasNulls" $4}}`)
 
+	// TODO(@azhng): replace accumulateSum with this
+	accumulateSum2 := makeFunctionRegex("_ACCUMULATE_SUM2", 4)
+	s = accumulateSum2.ReplaceAllString(s, `{{template "accumulateSum2" buildDict "Global" . "HasNulls" $4}}`)
+
 	tmpl, err := template.New("sum_agg").Funcs(template.FuncMap{"buildDict": buildDict}).Parse(s)
 	if err != nil {
 		return err

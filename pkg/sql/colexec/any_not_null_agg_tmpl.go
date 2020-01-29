@@ -135,9 +135,9 @@ func (a *anyNotNull_TYPEAgg) Compute2(b coldata.Batch, inputIdxs []uint32, start
 				}
 			}
 		} else {
-			col = execgen.SLICE(col, 0, int(inputLen))
+			col = execgen.SLICE(col, start, end)
 			for execgen.RANGE(i, col, 0, int(inputLen)) {
-				isNull = nulls.NullAt(uint16(i))
+				isNull = nulls.NullAt(start + uint16(i))
 				if !a.foundNonNullForCurrentGroup && !isNull {
 					a.curAgg = execgen.UNSAFEGET(col, int(i))
 					a.foundNonNullForCurrentGroup = true
@@ -155,7 +155,7 @@ func (a *anyNotNull_TYPEAgg) Compute2(b coldata.Batch, inputIdxs []uint32, start
 				}
 			}
 		} else {
-			col = execgen.SLICE(col, 0, int(inputLen))
+			col = execgen.SLICE(col, start, end)
 			for execgen.RANGE(i, col, 0, int(inputLen)) {
 				isNull = false
 				if !a.foundNonNullForCurrentGroup && !isNull {
