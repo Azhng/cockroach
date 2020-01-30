@@ -289,7 +289,6 @@ func (a *orderedAggregator) Next(ctx context.Context) coldata.Batch {
 			}
 
 			// TODO(@azhng): for printing purposes, not necessary, delete later
-			//               actually might be useful
 			sel := make([]uint16, batch.Length())
 			if batch.Selection() == nil {
 				for i := uint16(0); i < batch.Length(); i++ {

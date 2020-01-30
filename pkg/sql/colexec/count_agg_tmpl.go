@@ -91,7 +91,7 @@ func (a *countAgg) Compute2(b coldata.Batch, inputIdxs []uint32, start, end uint
 			}
 		}
 	} else {
-		a.curAgg = int64(inputLen)
+		a.curAgg += int64(inputLen)
 	}
 }
 

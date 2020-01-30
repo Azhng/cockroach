@@ -178,6 +178,8 @@ func (a *avg_TYPEAgg) Compute2(b coldata.Batch, inputIdxs []uint32, start, end u
 			}
 		} else {
 			col = col[start:end]
+			slicedNulls := nulls.Slice(uint64(start), uint64(end))
+			nulls = &slicedNulls
 			for i := range col {
 				_ACCUMULATE_AVG2(a, nulls, i, true)
 			}

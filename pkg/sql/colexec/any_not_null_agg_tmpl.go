@@ -136,6 +136,8 @@ func (a *anyNotNull_TYPEAgg) Compute2(b coldata.Batch, inputIdxs []uint32, start
 			}
 		} else {
 			col = execgen.SLICE(col, start, end)
+			//slicedNulls := nulls.Slice(uint64(start), uint64(end))
+			//nulls = &slicedNulls
 			for execgen.RANGE(i, col, 0, int(inputLen)) {
 				isNull = nulls.NullAt(start + uint16(i))
 				if !a.foundNonNullForCurrentGroup && !isNull {

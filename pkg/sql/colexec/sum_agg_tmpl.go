@@ -80,9 +80,9 @@ type sum_TYPEAgg struct {
 var _ aggregateFunc = &sum_TYPEAgg{}
 
 func (a *sum_TYPEAgg) Init(groups []bool, v coldata.Vec) {
-	a.groups = groups
-	a.scratch.vec = v._TemplateType()
-	a.scratch.nulls = v.Nulls()
+	//a.groups = groups
+	//a.scratch.vec = v._TemplateType()
+	//a.scratch.nulls = v.Nulls()
 	a.Reset()
 }
 
@@ -90,7 +90,7 @@ func (a *sum_TYPEAgg) Reset() {
 	a.scratch.curAgg = zero_TYPEColumn[0]
 	a.scratch.curIdx = -1
 	a.scratch.foundNonNullForCurrentGroup = false
-	a.scratch.nulls.UnsetNulls()
+	//a.scratch.nulls.UnsetNulls()
 	a.done = false
 }
 
@@ -116,6 +116,8 @@ func (a *sum_TYPEAgg) Compute2(b coldata.Batch, inputIdxs []uint32, start, end u
 			}
 		} else {
 			col = col[start:end]
+			slicedNulls := nulls.Slice(uint64(start), uint64(end))
+			nulls = &slicedNulls
 			for i := range col {
 				_ACCUMULATE_SUM2(a, nulls, i, true)
 			}
@@ -127,6 +129,7 @@ func (a *sum_TYPEAgg) Compute2(b coldata.Batch, inputIdxs []uint32, start, end u
 				_ACCUMULATE_SUM2(a, nulls, i, false)
 			}
 		} else {
+			// No need to slice nulls.
 			col = col[start:end]
 			for i := range col {
 				_ACCUMULATE_SUM2(a, nulls, i, false)
@@ -142,7 +145,6 @@ func (a *sum_TYPEAgg) Finalize(output coldata.Vec, outputIdx uint16) {
 		vec := output._TemplateType()
 		vec[outputIdx] = a.scratch.curAgg
 	}
-	a.scratch.curAgg = zero_TYPEColumn[0]
 	a.Reset()
 }
 

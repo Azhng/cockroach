@@ -214,6 +214,8 @@ func (a *_AGG_TYPEAgg) Compute2(b coldata.Batch, inputIdxs []uint32, start, end 
 						_ACCUMULATE_MINMAX2(a, nulls, i, true)
 					}
 				} else {
+					slicedNulls := nulls.Slice(uint64(start), uint64(end))
+					nulls = &slicedNulls
 					col = execgen.SLICE(col, start, end)
 					for execgen.RANGE(i, col, 0, int(inputLen)) {
 						_ACCUMULATE_MINMAX2(a, nulls, i, true)
