@@ -48,69 +48,33 @@ func newBool_OP_TYPEAgg() aggregateFunc {
 }
 
 type bool_OP_TYPEAgg struct {
-	done       bool
 	sawNonNull bool
-
-	groups []bool
-	vec    []bool
-
-	nulls  *coldata.Nulls
-	curIdx int
-	curAgg bool
+	curIdx     int
+	curAgg     bool
 }
 
-func (b *bool_OP_TYPEAgg) Init(groups []bool, vec coldata.Vec) {
-	b.groups = groups
-	b.Reset()
-}
-
-func (b *bool_OP_TYPEAgg) Reset() {
+func (b *bool_OP_TYPEAgg) Init() {
 	b.sawNonNull = false
 	// _DEFAULT_VAL indicates whether we are doing an AND aggregate or OR aggregate.
 	// For bool_and the _DEFAULT_VAL is true and for bool_or the _DEFAULT_VAL is false.
 	b.curAgg = _DEFAULT_VAL
 }
 
-func (b *bool_OP_TYPEAgg) CurrentOutputIndex() int {
-	return b.curIdx
-}
+func (b *bool_OP_TYPEAgg) Compute(batch coldata.Batch, inputIdxs []uint32, start, end uint16) {
+	offset := uint16(0)
 
-func (b *bool_OP_TYPEAgg) SetOutputIndex(idx int) {
-	if b.curIdx != -1 {
-		b.curIdx = idx
-		b.nulls.UnsetNullsAfter(uint16(idx))
-	}
-}
-
-func (b *bool_OP_TYPEAgg) Compute2(batch coldata.Batch, inputIdxs []uint32, start, end uint16) {
-	inputLen := end - start
-	if inputLen == 0 {
-		// short circuit, not need to materialize
-		// it's caller's responsibility to perform materialization
-		return
-	}
 	vec, sel := batch.ColVec(int(inputIdxs[0])), batch.Selection()
 	col, nulls := vec.Bool(), vec.Nulls()
-
 	if sel != nil {
 		sel = sel[start:end]
 		for _, i := range sel {
-			isNull := nulls.NullAt(uint16(i))
-			if !isNull {
-				_ASSIGN_BOOL_OP(b.curAgg, b.curAgg, col[i])
-				b.sawNonNull = true
-			}
+			_ACCUMULATE_BOOLEAN(b, nulls, i)
 		}
 	} else {
 		col = col[start:end]
-		//*nulls = nulls.Slice(uint64(start), uint64(end)) // TODO: figure out why I cannot slice nulls
+		offset = start
 		for i := range col {
-			isNull := nulls.NullAt(start + uint16(i))
-			//isNull := nulls.NullAt(uint16(i))
-			if !isNull {
-				_ASSIGN_BOOL_OP(b.curAgg, b.curAgg, col[i])
-				b.sawNonNull = true
-			}
+			_ACCUMULATE_BOOLEAN(b, nulls, i)
 		}
 	}
 }
@@ -122,41 +86,12 @@ func (b *bool_OP_TYPEAgg) Finalize(output coldata.Vec, outputIdx uint16) {
 	} else {
 		vec[outputIdx] = b.curAgg
 	}
-	b.Reset()
+	b.Init()
 }
 
-func (b *bool_OP_TYPEAgg) Compute(batch coldata.Batch, inputIdxs []uint32) {
-	if b.done {
-		return
-	}
-	inputLen := batch.Length()
-	if inputLen == 0 {
-		if !b.sawNonNull {
-			b.nulls.SetNull(uint16(b.curIdx))
-		} else {
-			b.vec[b.curIdx] = b.curAgg
-		}
-		b.curIdx++
-		b.done = true
-		return
-	}
-	vec, sel := batch.ColVec(int(inputIdxs[0])), batch.Selection()
-	col, nulls := vec.Bool(), vec.Nulls()
-	if sel != nil {
-		sel = sel[:inputLen]
-		for _, i := range sel {
-			_ACCUMULATE_BOOLEAN(b, nulls, i)
-		}
-	} else {
-		col = col[:inputLen]
-		for i := range col {
-			_ACCUMULATE_BOOLEAN(b, nulls, i)
-		}
-	}
-}
-
+// TODO(@azhng): fix this
 func (b *bool_OP_TYPEAgg) HandleEmptyInputScalar() {
-	b.nulls.SetNull(0)
+	//b.nulls.SetNull(0)
 }
 
 // {{end}}
@@ -165,21 +100,7 @@ func (b *bool_OP_TYPEAgg) HandleEmptyInputScalar() {
 // _ACCUMULATE_BOOLEAN aggregates the boolean value at index i into the boolean aggregate.
 func _ACCUMULATE_BOOLEAN(b *bool_OP_TYPEAgg, nulls *coldata.Nulls, i int) { // */}}
 	// {{define "accumulateBoolean" -}}
-	if b.groups[i] {
-		if b.curIdx >= 0 {
-			if !b.sawNonNull {
-				b.nulls.SetNull(uint16(b.curIdx))
-			} else {
-				b.vec[b.curIdx] = b.curAgg
-			}
-		}
-		b.curIdx++
-		// {{with .Global}}
-		b.curAgg = _DEFAULT_VAL
-		// {{end}}
-		b.sawNonNull = false
-	}
-	isNull := nulls.NullAt(uint16(i))
+	isNull := nulls.NullAt(offset + uint16(i))
 	if !isNull {
 		// {{with .Global}}
 		_ASSIGN_BOOL_OP(b.curAgg, b.curAgg, col[i])

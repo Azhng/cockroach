@@ -74,152 +74,49 @@ var _ interface{} = execgen.UNSAFEGET
 // first non-null value in the input column.
 type anyNotNull_TYPEAgg struct {
 	allocator                   *Allocator
-	done                        bool
-	groups                      []bool
-	vec                         coldata.Vec
-	col                         _GOTYPESLICE
-	nulls                       *coldata.Nulls
 	curIdx                      int
-	curAgg                      _GOTYPE // TODO(@azhng): hack
+	curAgg                      _GOTYPE
 	foundNonNullForCurrentGroup bool
 }
 
-func (a *anyNotNull_TYPEAgg) Init(groups []bool, vec coldata.Vec) {
-	a.groups = groups
-	a.vec = vec
-	//a.col = vec._TemplateType()
-	//a.nulls = vec.Nulls()
-	a.Reset()
-}
-
-func (a *anyNotNull_TYPEAgg) Reset() {
+func (a *anyNotNull_TYPEAgg) Init() {
 	a.curIdx = -1
-	a.done = false
 	a.foundNonNullForCurrentGroup = false
-	//a.nulls.UnsetNulls()
 }
 
-func (a *anyNotNull_TYPEAgg) CurrentOutputIndex() int {
-	return a.curIdx
-}
-
-func (a *anyNotNull_TYPEAgg) SetOutputIndex(idx int) {
-	if a.curIdx != -1 {
-		a.curIdx = idx
-		a.nulls.UnsetNullsAfter(uint16(idx + 1))
-	}
-}
-
-// TODO(@azhng): write it in template later
-func (a *anyNotNull_TYPEAgg) Compute2(b coldata.Batch, inputIdxs []uint32, start, end uint16) {
+func (a *anyNotNull_TYPEAgg) Compute(b coldata.Batch, inputIdxs []uint32, start, end uint16) {
 	inputLen := end - start
-	if inputLen == 0 {
-		// short circuit, not need to materialize
-		// it's caller's responsibility to perform materialization
-		return
-	}
+	// Suppress unused variable error.
+	_ = inputLen
+	offset := uint16(0)
 
-	vec, sel := b.ColVec(int(inputIdxs[0])), b.Selection()
-	col, nulls := vec._TemplateType(), vec.Nulls()
-
-	var isNull bool
-
-	if nulls.MaybeHasNulls() {
-		if sel != nil {
-			sel = sel[start:end]
-			for _, i := range sel {
-				isNull = nulls.NullAt(uint16(i))
-				if !a.foundNonNullForCurrentGroup && !isNull {
-					a.curAgg = execgen.UNSAFEGET(col, int(i))
-					a.foundNonNullForCurrentGroup = true
-				}
-			}
-		} else {
-			col = execgen.SLICE(col, start, end)
-			//slicedNulls := nulls.Slice(uint64(start), uint64(end))
-			//nulls = &slicedNulls
-			for execgen.RANGE(i, col, 0, int(inputLen)) {
-				isNull = nulls.NullAt(start + uint16(i))
-				if !a.foundNonNullForCurrentGroup && !isNull {
-					a.curAgg = execgen.UNSAFEGET(col, int(i))
-					a.foundNonNullForCurrentGroup = true
-				}
-			}
-		}
-	} else {
-		if sel != nil {
-			sel = sel[start:end]
-			for _, i := range sel {
-				isNull = false
-				if !a.foundNonNullForCurrentGroup && !isNull {
-					a.curAgg = execgen.UNSAFEGET(col, int(i))
-					a.foundNonNullForCurrentGroup = true
-				}
-			}
-		} else {
-			col = execgen.SLICE(col, start, end)
-			for execgen.RANGE(i, col, 0, int(inputLen)) {
-				isNull = false
-				if !a.foundNonNullForCurrentGroup && !isNull {
-					a.curAgg = execgen.UNSAFEGET(col, int(i))
-					a.foundNonNullForCurrentGroup = true
-				}
-			}
-		}
-	}
-}
-
-func (a *anyNotNull_TYPEAgg) Finalize(output coldata.Vec, outputIdx uint16) {
-	if !a.foundNonNullForCurrentGroup {
-		output.Nulls().SetNull(uint16(outputIdx))
-	} else {
-		vec := output._TemplateType()
-		execgen.SET(vec, int(outputIdx), a.curAgg)
-	}
-	a.Reset()
-}
-
-func (a *anyNotNull_TYPEAgg) Compute(b coldata.Batch, inputIdxs []uint32) {
-	if a.done {
-		return
-	}
-	inputLen := b.Length()
-	if inputLen == 0 {
-		// If we haven't found any non-nulls for this group so far, the output for
-		// this group should be null.
-		if !a.foundNonNullForCurrentGroup {
-			a.nulls.SetNull(uint16(a.curIdx))
-		}
-		a.curIdx++
-		a.done = true
-		return
-	}
 	vec, sel := b.ColVec(int(inputIdxs[0])), b.Selection()
 	col, nulls := vec._TemplateType(), vec.Nulls()
 
 	a.allocator.PerformOperation(
-		[]coldata.Vec{a.vec},
+		[]coldata.Vec{vec},
 		func() {
 			if nulls.MaybeHasNulls() {
 				if sel != nil {
-					sel = sel[:inputLen]
+					sel = sel[start:end]
 					for _, i := range sel {
 						_FIND_ANY_NOT_NULL(a, nulls, i, true)
 					}
 				} else {
-					col = execgen.SLICE(col, 0, int(inputLen))
+					offset = start
+					col = execgen.SLICE(col, start, end)
 					for execgen.RANGE(i, col, 0, int(inputLen)) {
 						_FIND_ANY_NOT_NULL(a, nulls, i, true)
 					}
 				}
 			} else {
 				if sel != nil {
-					sel = sel[:inputLen]
+					sel = sel[start:end]
 					for _, i := range sel {
 						_FIND_ANY_NOT_NULL(a, nulls, i, false)
 					}
 				} else {
-					col = execgen.SLICE(col, 0, int(inputLen))
+					col = execgen.SLICE(col, start, end)
 					for execgen.RANGE(i, col, 0, int(inputLen)) {
 						_FIND_ANY_NOT_NULL(a, nulls, i, false)
 					}
@@ -229,8 +126,19 @@ func (a *anyNotNull_TYPEAgg) Compute(b coldata.Batch, inputIdxs []uint32) {
 	)
 }
 
+func (a *anyNotNull_TYPEAgg) Finalize(output coldata.Vec, outputIdx uint16) {
+	if !a.foundNonNullForCurrentGroup {
+		output.Nulls().SetNull(uint16(outputIdx))
+	} else {
+		vec := output._TemplateType()
+		execgen.SET(vec, int(outputIdx), a.curAgg)
+	}
+	a.Init()
+}
+
+// TODO(@azhng): fix this
 func (a *anyNotNull_TYPEAgg) HandleEmptyInputScalar() {
-	a.nulls.SetNull(0)
+	//a.nulls.SetNull(0)
 }
 
 // {{end}}
@@ -242,20 +150,9 @@ func (a *anyNotNull_TYPEAgg) HandleEmptyInputScalar() {
 // current group, then the output for the current group is set to null.
 func _FIND_ANY_NOT_NULL(a *anyNotNull_TYPEAgg, nulls *coldata.Nulls, i int, _HAS_NULLS bool) { // */}}
 	// {{define "findAnyNotNull" -}}
-
-	if a.groups[i] {
-		// If this is a new group, check if any non-nulls have been found for the
-		// current group. The `a.curIdx` check is necessary because for the first
-		// group in the result set there is no "current group."
-		if !a.foundNonNullForCurrentGroup && a.curIdx >= 0 {
-			a.nulls.SetNull(uint16(a.curIdx))
-		}
-		a.curIdx++
-		a.foundNonNullForCurrentGroup = false
-	}
 	var isNull bool
 	// {{ if .HasNulls }}
-	isNull = nulls.NullAt(uint16(i))
+	isNull = nulls.NullAt(offset + uint16(i))
 	// {{ else }}
 	isNull = false
 	// {{ end }}
@@ -263,8 +160,7 @@ func _FIND_ANY_NOT_NULL(a *anyNotNull_TYPEAgg, nulls *coldata.Nulls, i int, _HAS
 		// If we haven't seen any non-nulls for the current group yet, and the
 		// current value is non-null, then we can pick the current value to be the
 		// output.
-		v := execgen.UNSAFEGET(col, int(i))
-		execgen.SET(a.col, a.curIdx, v)
+		a.curAgg = execgen.UNSAFEGET(col, int(i))
 		a.foundNonNullForCurrentGroup = true
 	}
 	// {{end}}

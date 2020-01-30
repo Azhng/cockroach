@@ -30,18 +30,14 @@ import (
 // at the current index inclusive for a correct aggregation.
 type aggregateFunc interface {
 
-	// TODO(@azhng): change interface to take no param
+	// TODO(@azhng): change interface to take no param, and update doc
 	// Init sets the groups for the aggregation and the output vector. Each index
 	// in groups corresponds to a column value in the input batch. true represents
 	// the first value of a new group.
-	Init(groups []bool, vec coldata.Vec)
-
-	// Reset resets the aggregate function for another run. Primarily used for
-	// benchmarks.
-	Reset()
+	Init()
 
 	// TODO(@azhng): merge two interfaces, for testing purposes
-	Compute2(batch coldata.Batch, inputIdxs []uint32, start, end uint16)
+	Compute(batch coldata.Batch, inputIdxs []uint32, start, end uint16)
 
 	// TODO(azhng): finalize the aggregation value and write to
 	//              the output vector at outputIdx
