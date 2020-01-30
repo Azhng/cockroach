@@ -92,8 +92,8 @@ var _ aggregateFunc = &avg_TYPEAgg{}
 
 func (a *avg_TYPEAgg) Init(groups []bool, v coldata.Vec) {
 	a.groups = groups
-	a.scratch.vec = v._TemplateType()
-	a.scratch.nulls = v.Nulls()
+	// a.scratch.vec = v._TemplateType()
+	// a.scratch.nulls = v.Nulls()
 	a.Reset()
 }
 
@@ -102,7 +102,7 @@ func (a *avg_TYPEAgg) Reset() {
 	a.scratch.curSum = zero_TYPEColumn[0]
 	a.scratch.curCount = 0
 	a.scratch.foundNonNullForCurrentGroup = false
-	a.scratch.nulls.UnsetNulls()
+	// a.scratch.nulls.UnsetNulls()
 	a.done = false
 }
 
@@ -165,11 +165,46 @@ func (a *avg_TYPEAgg) Compute(b coldata.Batch, inputIdxs []uint32) {
 }
 
 func (a *avg_TYPEAgg) Compute2(b coldata.Batch, inputIdxs []uint32, start, end uint16) {
-	panic("Not yet implmented")
+	inputLen := end - start
+	_ = inputLen
+	vec, sel := b.ColVec(int(inputIdxs[0])), b.Selection()
+	col, nulls := vec._TemplateType(), vec.Nulls()
+
+	if nulls.MaybeHasNulls() {
+		if sel != nil {
+			sel = sel[start:end]
+			for _, i := range sel {
+				_ACCUMULATE_AVG2(a, nulls, i, true)
+			}
+		} else {
+			col = col[start:end]
+			for i := range col {
+				_ACCUMULATE_AVG2(a, nulls, i, true)
+			}
+		}
+	} else {
+		if sel != nil {
+			sel = sel[start:end]
+			for _, i := range sel {
+				_ACCUMULATE_AVG2(a, nulls, i, false)
+			}
+		} else {
+			col = col[start:end]
+			for i := range col {
+				_ACCUMULATE_AVG2(a, nulls, i, false)
+			}
+		}
+	}
 }
 
 func (a *avg_TYPEAgg) Finalize(output coldata.Vec, outputIdx uint16) {
-	panic("Not yet implemented")
+	if !a.scratch.foundNonNullForCurrentGroup {
+		output.Nulls().SetNull(uint16(outputIdx))
+	} else {
+		vec := output._TemplateType()
+		_ASSIGN_DIV_INT64("vec[outputIdx]", "a.scratch.curSum", "a.scratch.curCount")
+	}
+	a.Reset()
 }
 
 func (a *avg_TYPEAgg) HandleEmptyInputScalar() {
@@ -213,6 +248,30 @@ func _ACCUMULATE_AVG(a *_AGG_TYPEAgg, nulls *coldata.Nulls, i int, _HAS_NULLS bo
 		a.scratch.foundNonNullForCurrentGroup = false
 		// {{ end }}
 	}
+	var isNull bool
+	// {{ if .HasNulls }}
+	isNull = nulls.NullAt(uint16(i))
+	// {{ else }}
+	isNull = false
+	// {{ end }}
+	if !isNull {
+		_ASSIGN_ADD("a.scratch.curSum", "a.scratch.curSum", "col[i]")
+		a.scratch.curCount++
+		a.scratch.foundNonNullForCurrentGroup = true
+	}
+	// {{end}}
+
+	// {{/*
+} // */}}
+
+// {{/*
+// _ACCUMULATE_AVG2 updates the total sum/count for current group using the value
+// of the ith row. If this is the first row of a new group, then the average is
+// computed for the current group. If no non-nulls have been found for the
+// current group, then the output for the current group is set to null.
+func _ACCUMULATE_AVG2(a *_AGG_TYPEAgg, nulls *coldata.Nulls, i int, _HAS_NULLS bool) { // */}}
+
+	// {{define "accumulateAvg2"}}
 	var isNull bool
 	// {{ if .HasNulls }}
 	isNull = nulls.NullAt(uint16(i))

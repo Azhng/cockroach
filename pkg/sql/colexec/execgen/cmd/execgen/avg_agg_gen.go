@@ -78,6 +78,10 @@ func genAvgAgg(wr io.Writer) error {
 	accumulateAvg := makeFunctionRegex("_ACCUMULATE_AVG", 4)
 	s = accumulateAvg.ReplaceAllString(s, `{{template "accumulateAvg" buildDict "Global" . "HasNulls" $4}}`)
 
+	// TODO(@azhng): replace accumulateAvg with this
+	accumulateAvg2 := makeFunctionRegex("_ACCUMULATE_AVG2", 4)
+	s = accumulateAvg2.ReplaceAllString(s, `{{template "accumulateAvg2" buildDict "Global" . "HasNulls" $4}}`)
+
 	tmpl, err := template.New("avg_agg").Funcs(template.FuncMap{"buildDict": buildDict}).Parse(s)
 	if err != nil {
 		return err

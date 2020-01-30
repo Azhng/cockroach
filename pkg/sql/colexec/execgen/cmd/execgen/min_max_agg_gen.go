@@ -60,6 +60,10 @@ func genMinMaxAgg(wr io.Writer) error {
 	accumulateMinMax := makeFunctionRegex("_ACCUMULATE_MINMAX", 4)
 	s = accumulateMinMax.ReplaceAllString(s, `{{template "accumulateMinMax" buildDict "Global" . "LTyp" .LTyp "HasNulls" $4}}`)
 
+	// TODO(@azhng): replace accumulateMinMax with this
+	accumulateMinMax2 := makeFunctionRegex("_ACCUMULATE_MINMAX2", 4)
+	s = accumulateMinMax2.ReplaceAllString(s, `{{template "accumulateMinMax2" buildDict "Global" . "LTyp" .LTyp "HasNulls" $4}}`)
+
 	s = replaceManipulationFuncs(".LTyp", s)
 
 	tmpl, err := template.New("min_max_agg").Funcs(template.FuncMap{"buildDict": buildDict}).Parse(s)

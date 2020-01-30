@@ -117,16 +117,16 @@ var _ aggregateFunc = &_AGG_TYPEAgg{}
 
 func (a *_AGG_TYPEAgg) Init(groups []bool, v coldata.Vec) {
 	a.groups = groups
-	a.vec = v
-	a.col = v._TYPE()
-	a.nulls = v.Nulls()
+	//a.vec = v
+	//a.col = v._TYPE()
+	//a.nulls = v.Nulls()
 	a.Reset()
 }
 
 func (a *_AGG_TYPEAgg) Reset() {
 	a.curIdx = -1
 	a.foundNonNullForCurrentGroup = false
-	a.nulls.UnsetNulls()
+	//a.nulls.UnsetNulls()
 	a.done = false
 }
 
@@ -199,13 +199,54 @@ func (a *_AGG_TYPEAgg) Compute(b coldata.Batch, inputIdxs []uint32) {
 }
 
 func (a *_AGG_TYPEAgg) Compute2(b coldata.Batch, inputIdxs []uint32, start, end uint16) {
-	panic("Not yet implemented")
+	inputLen := end - start
+	_ = inputLen // Suppress some unused variable warning
+	vec, sel := b.ColVec(int(inputIdxs[0])), b.Selection()
+	col, nulls := vec._TYPE(), vec.Nulls()
+
+	a.allocator.PerformOperation(
+		[]coldata.Vec{vec},
+		func() {
+			if nulls.MaybeHasNulls() {
+				if sel != nil {
+					sel = sel[start:end]
+					for _, i := range sel {
+						_ACCUMULATE_MINMAX2(a, nulls, i, true)
+					}
+				} else {
+					col = execgen.SLICE(col, start, end)
+					for execgen.RANGE(i, col, 0, int(inputLen)) {
+						_ACCUMULATE_MINMAX2(a, nulls, i, true)
+					}
+				}
+			} else {
+				if sel != nil {
+					sel = sel[start:end]
+					for _, i := range sel {
+						_ACCUMULATE_MINMAX2(a, nulls, i, false)
+					}
+				} else {
+					col = execgen.SLICE(col, start, end)
+					for execgen.RANGE(i, col, 0, int(inputLen)) {
+						_ACCUMULATE_MINMAX2(a, nulls, i, false)
+					}
+				}
+			}
+		},
+	)
 }
 
 func (a *_AGG_TYPEAgg) Finalize(output coldata.Vec, outputIdx uint16) {
-	panic("Not yet implemented")
+	if !a.foundNonNullForCurrentGroup {
+		output.Nulls().SetNull(outputIdx)
+	} else {
+		vec := output._TYPE()
+		execgen.SET(vec, int(outputIdx), a.curAgg)
+	}
+	a.Reset()
 }
 
+// TODO(@azhng): fix this
 func (a *_AGG_TYPEAgg) HandleEmptyInputScalar() {
 	a.nulls.SetNull(0)
 }
@@ -235,6 +276,38 @@ func _ACCUMULATE_MINMAX(a *_AGG_TYPEAgg, nulls *coldata.Nulls, i int, _HAS_NULLS
 		a.curIdx++
 		a.foundNonNullForCurrentGroup = false
 	}
+	var isNull bool
+	// {{ if .HasNulls }}
+	isNull = nulls.NullAt(uint16(i))
+	// {{ else }}
+	isNull = false
+	// {{ end }}
+	if !isNull {
+		if !a.foundNonNullForCurrentGroup {
+			a.curAgg = execgen.UNSAFEGET(col, int(i))
+			a.foundNonNullForCurrentGroup = true
+		} else {
+			var cmp bool
+			candidate := execgen.UNSAFEGET(col, int(i))
+			_ASSIGN_CMP("cmp", "candidate", "a.curAgg")
+			if cmp {
+				a.curAgg = candidate
+			}
+		}
+	}
+	// {{end}}
+
+	// {{/*
+} // */}}
+
+// TODO(@azhng): replace _ACCUMULATE_MINMAX with this
+// {{/*
+// _ACCUMULATE_MINMAX2 sets the output for the current group to be the value of
+// the ith row if it is smaller/larger than the current result. If this is the
+// first row of a new group, and no non-nulls have been found for the current
+// group, then the output for the current group is set to null.
+func _ACCUMULATE_MINMAX2(a *_AGG_TYPEAgg, nulls *coldata.Nulls, i int, _HAS_NULLS bool) { // */}}
+	// {{define "accumulateMinMax2"}}
 	var isNull bool
 	// {{ if .HasNulls }}
 	isNull = nulls.NullAt(uint16(i))

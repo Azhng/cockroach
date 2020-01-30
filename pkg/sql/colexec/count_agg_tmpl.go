@@ -75,13 +75,12 @@ func (a *countAgg) SetOutputIndex(idx int) {
 func (a *countAgg) Compute2(b coldata.Batch, inputIdxs []uint32, start, end uint16) {
 	inputLen := end - start
 
-	vec, sel := b.ColVec(int(inputIdxs[0])), b.Selection()
-	nulls := vec.Nulls()
-
 	// If this is a COUNT(col) aggregator and there are nulls in this batch,
 	// we must check each value for nullity. Note that it is only legal to do a
 	// COUNT aggregate on a single column.
 	if !a.countRow && b.ColVec(int(inputIdxs[0])).MaybeHasNulls() {
+		vec, sel := b.ColVec(int(inputIdxs[0])), b.Selection()
+		nulls := vec.Nulls()
 		if sel != nil {
 			for _, i := range sel[start:end] {
 				_ACCUMULATE_COUNT2(a, nulls, i, true)
