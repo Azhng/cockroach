@@ -268,14 +268,11 @@ func (a *orderedAggregator) Next(ctx context.Context) coldata.Batch {
 			sel := batch.Selection()
 			inputLen := batch.Length()
 
-			if inputLen == 0 {
-				if a.scratch.pendingAggGroup {
-					//fmt.Printf("      Flushing last group: resumeIdx %d\n", a.scratch.resumeIdx)
-					for aggFnIdx, fn := range a.aggregateFuncs {
-						fn.Finalize(a.scratch.ColVec(aggFnIdx), uint16(a.scratch.resumeIdx))
-					}
-					a.scratch.resumeIdx++
+			if inputLen == 0 && a.scratch.pendingAggGroup {
+				for aggFnIdx, fn := range a.aggregateFuncs {
+					fn.Finalize(a.scratch.ColVec(aggFnIdx), uint16(a.scratch.resumeIdx))
 				}
+				a.scratch.resumeIdx++
 				a.done = true
 				break
 			}
@@ -287,30 +284,24 @@ func (a *orderedAggregator) Next(ctx context.Context) coldata.Batch {
 			}
 
 			groupIdx := 0
-			groupBounds := make([][2]uint16, inputLen) // TODO(@azhng): try preallocate
+			groupBounds := make([][2]uint16, inputLen)
 
 			groupBounds[0][0] = 0
 
 			for i := uint16(1); i < inputLen; i++ {
-				// TODO(@azhng): find a more elegant way of writing this
+				idx := i
 				if sel != nil {
-					if a.groupCol[sel[i]] {
-						groupBounds[groupIdx][1] = i // mark the end of the group
-						groupIdx++
-						groupBounds[groupIdx][0] = i // mark the start of the group
-					}
-				} else {
-					if a.groupCol[i] {
-						groupBounds[groupIdx][1] = i // mark the end of the group
-						groupIdx++
-						groupBounds = append(groupBounds, [2]uint16{})
-						groupBounds[groupIdx][0] = i // mark the start of the group
-					}
+					idx = sel[i]
+				}
+				if a.groupCol[idx] {
+					groupBounds[groupIdx][1] = i // mark the end of the group
+					groupIdx++
+					groupBounds[groupIdx][0] = i // mark the start of the group
 				}
 			}
 
 			groupBounds[groupIdx][1] = inputLen
-			groupBounds = groupBounds[:groupIdx+1] // cut off extra ones
+			groupBounds = groupBounds[:groupIdx+1] // cut off extra ones so we can use range loop
 
 			// if we are starting with a new group in this batch and
 			// there is a pending aggregation group, then we finalize
@@ -324,23 +315,40 @@ func (a *orderedAggregator) Next(ctx context.Context) coldata.Batch {
 				a.scratch.pendingAggGroup = false
 			}
 
-			for groupIdx, bound := range groupBounds {
+			// base line implementation
+			//for groupIdx, bound := range groupBounds {
+			//	for aggFnIdx, fn := range a.aggregateFuncs {
+			//		fn.Compute(batch, a.aggCols[aggFnIdx], bound[0], bound[1])
+			//		// we only finalize the agg result if we are sure we have
+			//		// finished processing the entire group
+			//		if groupIdx == len(groupBounds)-1 {
+			//			a.scratch.pendingAggGroup = true
+			//		} else {
+			//			fn.Finalize(a.scratch.ColVec(aggFnIdx), uint16(a.scratch.resumeIdx))
+			//			a.scratch.pendingAggGroup = false
+			//		}
+			//	}
+			//	if !a.scratch.pendingAggGroup {
+			//		a.scratch.resumeIdx++
+			//	}
+			//}
+			// TODO(@azhng): ^^^ refactor
+
+			// attempt to remove if in tight loop
+			for _, bound := range groupBounds[:len(groupBounds)-1] {
 				for aggFnIdx, fn := range a.aggregateFuncs {
 					fn.Compute(batch, a.aggCols[aggFnIdx], bound[0], bound[1])
 					// we only finalize the agg result if we are sure we have
 					// finished processing the entire group
-					if groupIdx == len(groupBounds)-1 {
-						a.scratch.pendingAggGroup = true
-					} else {
-						fn.Finalize(a.scratch.ColVec(aggFnIdx), uint16(a.scratch.resumeIdx))
-						a.scratch.pendingAggGroup = false
-					}
+					fn.Finalize(a.scratch.ColVec(aggFnIdx), uint16(a.scratch.resumeIdx))
 				}
-				if !a.scratch.pendingAggGroup {
-					a.scratch.resumeIdx++
-				}
+				a.scratch.resumeIdx++
 			}
-			// TODO(@azhng): ^^^ refactor
+
+			for aggFnIdx, fn := range a.aggregateFuncs {
+				fn.Compute(batch, a.aggCols[aggFnIdx], groupBounds[len(groupBounds)-1][0], groupBounds[len(groupBounds)-1][1])
+			}
+			a.scratch.pendingAggGroup = true
 		}
 		// zero out a.groupCol. This is necessary because distinct ORs the
 		// uniqueness of a value with the groupCol, allowing the operators to be

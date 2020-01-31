@@ -63,7 +63,6 @@ type sum_TYPEAgg struct {
 
 	groups  []bool
 	scratch struct {
-		curIdx int
 		// curAgg holds the running total, so we can index into the slice once per
 		// group, instead of on each iteration.
 		curAgg _GOTYPE
@@ -77,7 +76,6 @@ var _ aggregateFunc = &sum_TYPEAgg{}
 
 func (a *sum_TYPEAgg) Init() {
 	a.scratch.curAgg = zero_TYPEColumn[0]
-	a.scratch.curIdx = -1
 	a.scratch.foundNonNullForCurrentGroup = false
 	a.done = false
 }

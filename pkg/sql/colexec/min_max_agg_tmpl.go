@@ -95,7 +95,6 @@ func new_AGG_TITLEAgg(allocator *Allocator, t coltypes.T) (aggregateFunc, error)
 
 type _AGG_TYPEAgg struct {
 	allocator *Allocator
-	curIdx    int
 	// curAgg holds the running min/max, so we can index into the slice once per
 	// group, instead of on each iteration.
 	// NOTE: if foundNonNullForCurrentGroup is false, curAgg is undefined.
@@ -108,7 +107,6 @@ type _AGG_TYPEAgg struct {
 var _ aggregateFunc = &_AGG_TYPEAgg{}
 
 func (a *_AGG_TYPEAgg) Init() {
-	a.curIdx = -1
 	a.foundNonNullForCurrentGroup = false
 }
 

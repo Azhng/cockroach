@@ -70,7 +70,6 @@ type avg_TYPEAgg struct {
 
 	groups  []bool
 	scratch struct {
-		curIdx int
 		// curSum keeps track of the sum of elements belonging to the current group,
 		// so we can index into the slice once per group, instead of on each
 		// iteration.
@@ -87,7 +86,6 @@ type avg_TYPEAgg struct {
 var _ aggregateFunc = &avg_TYPEAgg{}
 
 func (a *avg_TYPEAgg) Init() {
-	a.scratch.curIdx = -1
 	a.scratch.curSum = zero_TYPEColumn[0]
 	a.scratch.curCount = 0
 	a.scratch.foundNonNullForCurrentGroup = false

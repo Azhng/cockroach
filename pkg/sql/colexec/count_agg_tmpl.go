@@ -38,13 +38,11 @@ func newCountAgg() *countAgg {
 // countAgg supports both the COUNT(*) and COUNT(col) aggregates, which are
 // distinguished by the countRow flag.
 type countAgg struct {
-	curIdx   int
 	countRow bool
 	curAgg   int64
 }
 
 func (a *countAgg) Init() {
-	a.curIdx = -1
 	a.curAgg = int64(0)
 }
 

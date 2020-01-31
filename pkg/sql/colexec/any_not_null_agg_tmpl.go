@@ -74,13 +74,11 @@ var _ interface{} = execgen.UNSAFEGET
 // first non-null value in the input column.
 type anyNotNull_TYPEAgg struct {
 	allocator                   *Allocator
-	curIdx                      int
 	curAgg                      _GOTYPE
 	foundNonNullForCurrentGroup bool
 }
 
 func (a *anyNotNull_TYPEAgg) Init() {
-	a.curIdx = -1
 	a.foundNonNullForCurrentGroup = false
 }
 

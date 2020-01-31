@@ -49,7 +49,6 @@ func newBool_OP_TYPEAgg() aggregateFunc {
 
 type bool_OP_TYPEAgg struct {
 	sawNonNull bool
-	curIdx     int
 	curAgg     bool
 }
 
