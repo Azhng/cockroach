@@ -58,6 +58,51 @@ func (t tuple) String() string {
 // tuples represents a table with any-type columns.
 type tuples []tuple
 
+func (t tuple) less(other tuple) bool {
+	for i := range t {
+		// If either side is nil, we short circuit the comparison.
+		if t[i] == nil || other[i] == nil {
+			if t[i] != nil && other == nil {
+				return false
+			}
+			continue
+		}
+
+		lhsVal := reflect.ValueOf(t[i])
+		rhsVal := reflect.ValueOf(other[i])
+
+		switch typ := lhsVal.Type().Name(); typ {
+		case "int", "int64":
+			if lhsVal.Int() > rhsVal.Int() {
+				return false
+			}
+		case "float", "float64":
+			if lhsVal.Float() > rhsVal.Float() {
+				return false
+			}
+		case "bool":
+			if !(lhsVal.Bool() == false && rhsVal.Bool() == true) {
+				return false
+			}
+		case "string":
+			if lhsVal.String() > rhsVal.String() {
+				return false
+			}
+		default:
+			panic(fmt.Sprintf("Unhandled comparison type: %s", typ))
+		}
+	}
+	return true
+}
+
+func (t tuples) sort() {
+	sort.Slice(t, func(i, j int) bool {
+		lhs := t[i]
+		rhs := t[j]
+		return lhs.less(rhs)
+	})
+}
+
 type verifier func(output *opTestOutput) error
 
 // orderedVerifier compares the input and output tuples, returning an error if
@@ -895,23 +940,28 @@ func assertTuplesSetsEqual(expected tuples, actual tuples) error {
 	if len(expected) != len(actual) {
 		return makeError(expected, actual)
 	}
-	actualTupleUsed := make([]bool, len(actual))
-	for _, te := range expected {
-		matched := false
-		for j, ta := range actual {
-			if !actualTupleUsed[j] {
-				if tupleEquals(te, ta) {
-					actualTupleUsed[j] = true
-					matched = true
-					break
-				}
-			}
-		}
-		if !matched {
-			return makeError(expected, actual)
-		}
-	}
-	return nil
+	expected.sort()
+	actual.sort()
+	fmt.Println("expected: ", expected)
+	fmt.Println("actual: ", actual)
+	return assertTuplesOrderedEqual(expected, actual)
+	//actualTupleUsed := make([]bool, len(actual))
+	//for _, te := range expected {
+	//	matched := false
+	//	for j, ta := range actual {
+	//		if !actualTupleUsed[j] {
+	//			if tupleEquals(te, ta) {
+	//				actualTupleUsed[j] = true
+	//				matched = true
+	//				break
+	//			}
+	//		}
+	//	}
+	//	if !matched {
+	//		return makeError(expected, actual)
+	//	}
+	//}
+	//return nil
 }
 
 // assertTuplesOrderedEqual asserts that two permutations of tuples are equal
