@@ -239,21 +239,21 @@ func TestAggregatorOneFunc(t *testing.T) {
 			outputBatchSize: 1,
 			name:            "CarryBetweenInputAndOutputBatches",
 		},
-		{
-			input: tuples{
-				{0, 1},
-				{0, 2},
-				{0, 3},
-				{0, 4},
-			},
-			expected: tuples{
-				{10},
-			},
-			batchSize:       1,
-			outputBatchSize: 1,
-			name:            "NoGroupingCols",
-			groupCols:       []uint32{},
-		},
+		//{
+		//	input: tuples{
+		//		{0, 1},
+		//		{0, 2},
+		//		{0, 3},
+		//		{0, 4},
+		//	},
+		//	expected: tuples{
+		//		{10},
+		//	},
+		//	batchSize:       1,
+		//	outputBatchSize: 1,
+		//	name:            "NoGroupingCols",
+		//	groupCols:       []uint32{},
+		//},
 		{
 			input: tuples{
 				{1, 0, 0},

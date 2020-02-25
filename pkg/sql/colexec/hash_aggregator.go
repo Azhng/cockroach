@@ -435,7 +435,7 @@ func (op *hashAggregator) onlineAgg() {
 				// allocated for 'sel' to avoid extra allocation and copying.
 				anyMatched, remaining = aggFunc.match(
 					remaining, op.scratch, op.groupCols, op.groupTypes, op.keyMapping,
-					op.scratch.group[:len(remaining)],
+					op.scratch.group[:len(remaining)], false, /* skipFirstEntry */
 				)
 				if anyMatched {
 					aggFunc.compute(op.scratch, op.aggCols)
@@ -459,20 +459,12 @@ func (op *hashAggregator) onlineAgg() {
 			op.keyMapping.length++
 
 			// Store the key of the current aggregating group into keyMapping.
-			op.allocator.PerformOperation(keyMappingVecs, func() {
-				for keyIdx, colIdx := range op.groupCols {
-					// TODO(azhng): Try to preallocate enough memory so instead of
-					// .Append() we can use execgen.SET to improve the
-					// performance.
-					keyMappingVecs[keyIdx].Append(coldata.SliceArgs{
-						Src:         scratchBufferVecs[colIdx],
-						ColType:     op.valTypes[colIdx],
-						DestIdx:     aggFunc.keyIdx,
-						SrcStartIdx: uint64(remaining[0]),
-						SrcEndIdx:   uint64(remaining[0] + 1),
-					})
-				}
-			})
+			op.allocator.PerformOperation(
+				keyMappingVecs,
+				op.appendSingleValue(keyMappingVecs, scratchBufferVecs,
+					int(remaining[0]), int(aggFunc.keyIdx),
+				),
+			)
 
 			aggFunc.fns, _, _ =
 				makeAggregateFuncs(op.allocator, op.aggTypes, op.aggFuncs)
@@ -481,10 +473,9 @@ func (op *hashAggregator) onlineAgg() {
 			// Select rest of the tuples that matches the current key. We don't need
 			// to check if there is any match since 'remaining[0]' will always be
 			// matched.
-			// TODO(azhng): Refactor match so that we can skip checking remaining[0].
 			_, remaining = aggFunc.match(
 				remaining, op.scratch, op.groupCols, op.groupTypes, op.keyMapping,
-				op.scratch.group[:len(remaining)],
+				op.scratch.group[:len(remaining)], true, /* skipFirstEntry */
 			)
 
 			// Hack required to get aggregation function working. See '.scratch.group'

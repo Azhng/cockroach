@@ -38,6 +38,10 @@ func genHashAggregator(wr io.Writer) error {
 	s = matchLoop.ReplaceAllString(
 		s, `{{template "matchLoop" buildDict "Global" . "LhsMaybeHasNulls" $7 "RhsMaybeHasNulls" $8}}`)
 
+	setValRe := makeFunctionRegex("_SET_VAL", 2)
+	s = setValRe.ReplaceAllString(
+		s, `{{template "setVal" buildDict "Global" .}}`)
+
 	tmpl, err := template.New("hash_aggregator").Funcs(template.FuncMap{"buildDict": buildDict}).Parse(s)
 	if err != nil {
 		return err

@@ -27,6 +27,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/col/coldata"
 	"github.com/cockroachdb/cockroach/pkg/col/coltypes"
 	"github.com/cockroachdb/cockroach/pkg/sql/colexec/execerror"
+
 	// {{/*
 	"github.com/cockroachdb/cockroach/pkg/sql/colexec/execgen"
 	// */}}
@@ -114,6 +115,7 @@ func (v hashAggFuncs) match(
 	keyTypes []coltypes.T,
 	keyMapping coldata.Batch,
 	diff []bool,
+	skipFirstEntry bool,
 ) (bool, []uint16) {
 	// We want to directly write to the selection vector to avoid extra
 	// allocation.
@@ -121,7 +123,19 @@ func (v hashAggFuncs) match(
 	matched := b.Selection()
 	matched = matched[:0]
 
+	// remaining will reuse the memory allocated for sel.
+	remaining := sel[:0]
+
 	aggKeyIdx := v.keyIdx
+
+	if skipFirstEntry {
+		matched = append(matched, sel[0])
+		sel = sel[1:]
+
+		// Set diff[0] to true to ensure diff can be reused for later.
+		diff[0] = false
+		diff = diff[1:]
+	}
 
 	for keyIdx, colIdx := range keyCols {
 		lhs := keyMapping.ColVec(keyIdx)
@@ -153,7 +167,6 @@ func (v hashAggFuncs) match(
 		}
 	}
 
-	remaining := sel[:0]
 	anyMatched := false
 
 	for selIdx, isDiff := range diff {
@@ -174,4 +187,49 @@ func (v hashAggFuncs) match(
 	}
 
 	return anyMatched, remaining
+}
+
+// {{/*
+func (op *hashAggregator) _SET_VAL(destIdx int, selIdx int) { // */}}
+	// {{define "setVal" -}}
+
+	val := execgen.UNSAFEGET(srcCol, selIdx)
+	execgen.SET(targetCol, destIdx, val)
+
+	// {{end}}
+	// {{/*
+} // */}}
+
+// TODO(azhng): doc, and better name
+func (op *hashAggregator) appendSingleValue(
+	targetVecs []coldata.Vec, srcVecs []coldata.Vec, selIdx int, destIdx int,
+) func() {
+	return func() {
+		capacity := targetVecs[0].Capacity()
+		for keyIdx, colIdx := range op.groupCols {
+			colType := op.valTypes[colIdx]
+			isByte := colType == coltypes.Bytes
+			overCapacity := destIdx >= capacity
+			if isByte || overCapacity {
+				targetVecs[keyIdx].Append(coldata.SliceArgs{
+					Src:         srcVecs[colIdx],
+					ColType:     op.valTypes[colIdx],
+					DestIdx:     uint64(destIdx),
+					SrcStartIdx: uint64(selIdx),
+					SrcEndIdx:   uint64(selIdx + 1),
+				})
+			} else {
+				switch colType {
+				// {{range .}}
+				case _TYPES_T:
+					targetCol := targetVecs[keyIdx]._TemplateType()
+					srcCol := srcVecs[colIdx]._TemplateType()
+					_SET_VAL(destIdx, selIdx)
+				// {{end}}
+				default:
+					execerror.VectorizedInternalPanic(fmt.Sprintf("unhandled type %d", colType))
+				}
+			}
+		}
+	}
 }
