@@ -447,7 +447,15 @@ func (ht *hashTable) computeBuckets(
 func (ht *hashTable) buildNextChains(
 	ctx context.Context, first, next []uint64, offset, batchSize int,
 ) {
-	for id := offset; id < offset+batchSize; id++ {
+	//for id := offset; id < offset+batchSize; id++ {
+	//	ht.cancelChecker.check(ctx)
+	//	// keyID is stored into corresponding hash bucket at the front of the next
+	//	// chain.
+	//	hash := next[id]
+	//	next[id] = first[hash]
+	//	first[hash] = uint64(id)
+	//}
+	for id := offset + batchSize - 1; id >= offset; id-- {
 		ht.cancelChecker.check(ctx)
 		// keyID is stored into corresponding hash bucket at the front of the next
 		// chain.

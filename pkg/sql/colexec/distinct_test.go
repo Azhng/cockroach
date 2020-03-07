@@ -14,13 +14,111 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"reflect"
 	"testing"
 
 	"github.com/cockroachdb/cockroach/pkg/col/coldata"
 	"github.com/cockroachdb/cockroach/pkg/col/coltypes"
+	"github.com/cockroachdb/cockroach/pkg/settings/cluster"
+	"github.com/cockroachdb/cockroach/pkg/sql/execinfra"
+	"github.com/cockroachdb/cockroach/pkg/sql/execinfrapb"
+	"github.com/cockroachdb/cockroach/pkg/sql/sqlbase"
 	"github.com/cockroachdb/cockroach/pkg/util/leaktest"
 	"github.com/cockroachdb/cockroach/pkg/util/randutil"
 )
+
+func TestScratch(t *testing.T) {
+	ctx := context.Background()
+
+	o := tuples{
+		{10, 1, "CA"}, {20, 1, "CA"}, {30, 1, "CA"},
+		{40, 2, "CA"}, {50, 2, "TX"}, {60, 2, nil},
+		{70, 4, "WY"}, {80, 4, nil},
+		{90, 6, "WA"},
+	}
+
+	c := tuples{
+		{1, "CA"},
+		{2, "TX"},
+		{3, "MA"},
+		{4, "TX"},
+		{5, nil},
+		{6, "FL"},
+	}
+
+	src1 := newOpTestInput(30, c, []coltypes.T{coltypes.Int64, coltypes.Bytes})
+	src2 := newOpTestInput(30, o, []coltypes.T{coltypes.Int64, coltypes.Int64, coltypes.Bytes})
+
+	inputs := []Operator{
+		NewSimpleProjectOp(src2, 5, []uint32{1, 2}),
+		src1,
+	}
+
+	hjSpec, _ := makeHashJoinerSpec(
+		sqlbase.JoinType_RIGHT_OUTER,
+		[]uint32{0},
+		[]uint32{0},
+		[]coltypes.T{coltypes.Int64, coltypes.Bytes},
+		[]coltypes.T{coltypes.Int64, coltypes.Bytes},
+		true,
+	)
+
+	testMemMonitor = execinfra.NewTestMemMonitor(ctx, cluster.MakeTestingClusterSettings())
+	defer testMemMonitor.Stop(ctx)
+	memAcc := testMemMonitor.MakeBoundAccount()
+	testMemAcc = &memAcc
+	testAllocator = NewAllocator(ctx, testMemAcc)
+
+	hj := newHashJoiner(
+		testAllocator, hjSpec, inputs[0], inputs[1],
+	)
+
+	sorter, _ := NewSorter(testAllocator, hj,
+		[]coltypes.T{coltypes.Int64, coltypes.Bytes, coltypes.Int64, coltypes.Bytes},
+		[]execinfrapb.Ordering_Column{
+			{
+				ColIdx:    1,
+				Direction: 0,
+			},
+		})
+
+	//proj := NewSimpleProjectOp(sorter, 4, []uint32{2, 3, 1})
+	//_ = proj
+
+	distinct := NewUnorderedDistinct(testAllocator, sorter, []uint32{2}, []coltypes.T{coltypes.Int64, coltypes.Bytes, coltypes.Int64, coltypes.Bytes}, hashTableNumBuckets)
+	_ = distinct
+
+	selOp := newIsNullSelOp(distinct, 1, true)
+	_ = selOp
+
+	proj2 := NewSimpleProjectOp(selOp, 3, []uint32{2, 3})
+	_ = proj2
+
+	op := sorter
+
+	op.Init()
+
+	for b := op.Next(ctx); b.Length() != 0; b = op.Next(ctx) {
+		for i := 0; i < b.Length(); i++ {
+			tps := getTupleFromBatch(b, i)
+			for _, tp := range tps {
+				if tp == nil {
+					fmt.Printf("NULL ")
+					continue
+				}
+				v := reflect.ValueOf(tp)
+				if v.Type().String() == "[]uint8" {
+					fmt.Printf("%s ", string(v.Interface().([]uint8)))
+				} else {
+					fmt.Printf("%v ", tp)
+				}
+			}
+			fmt.Println()
+		}
+	}
+
+	//sorter := NewSorter(testAllocator, hj)
+}
 
 func TestDistinct(t *testing.T) {
 	defer leaktest.AfterTest(t)()
