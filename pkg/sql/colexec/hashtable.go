@@ -1,5 +1,3 @@
-// Copyright 2020 The Cockroach Authors.
-//
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt.
 //
@@ -46,6 +44,9 @@ type hashTableBuildBuffer struct {
 	// hash table bucket chain, where an id of 0 is reserved to represent end of
 	// chain.
 	next []uint64
+
+	// TODO(azhng): doc
+	last []uint64
 }
 
 // hashTableProbeBuffer stores the information related to the probe table.
@@ -59,6 +60,10 @@ type hashTableProbeBuffer struct {
 	// hash table bucket chain, where an id of 0 is reserved to represent end of
 	// chain.
 	next []uint64
+
+	// TODO(azhng): doc
+	prev []uint64
+	last []uint64
 
 	// headID stores the first build table keyID that matched with the probe batch
 	// key at any given index.
@@ -250,9 +255,15 @@ func newHashTable(
 	if mode == hashTableDistinctMode {
 		ht.probeScratch.first = make([]uint64, numBuckets)
 		ht.probeScratch.next = make([]uint64, coldata.BatchSize()+1)
+
 		ht.buildScratch.next = make([]uint64, 1, coldata.BatchSize()+1)
 		ht.probeScratch.hashBuffer = make([]uint64, coldata.BatchSize())
 		ht.probeScratch.distinct = make([]bool, coldata.BatchSize())
+
+		ht.probeScratch.last = make([]uint64, numBuckets)
+		ht.probeScratch.prev = make([]uint64, coldata.BatchSize()+1)
+
+		ht.buildScratch.last = make([]uint64, numBuckets)
 	}
 
 	return ht
@@ -298,34 +309,61 @@ func (ht *hashTable) build(ctx context.Context, input Operator) {
 			}
 
 			ht.computeBuckets(
-				ctx, ht.probeScratch.next[1:], ht.keyTypes, ht.probeScratch.keys, batch.Length(), batch.Selection())
-			copy(ht.probeScratch.hashBuffer, ht.probeScratch.next[1:])
-			ht.buildNextChains(ctx, ht.probeScratch.first, ht.probeScratch.next, 1, batch.Length())
+				ctx, ht.probeScratch.hashBuffer, ht.keyTypes, ht.probeScratch.keys, batch.Length(), batch.Selection())
+			ht.buildDoubleLinkedChains(
+				ctx, ht.probeScratch.first, ht.probeScratch.last, ht.probeScratch.next,
+				ht.probeScratch.prev, ht.probeScratch.hashBuffer, 1, batch.Length())
 
 			ht.removeDuplicates(batch, ht.probeScratch.keys, ht.probeScratch.first, ht.probeScratch.next, ht.checkProbeForDistinct)
 
-			// We only check duplicates when there is tuple buffered.
-			if ht.vals.Length() > 0 {
-				ht.removeDuplicates(batch, ht.probeScratch.keys, ht.buildScratch.first, ht.buildScratch.next, ht.checkBuildForDistinct)
-			}
-
-			ht.allocator.PerformOperation(targetVecs, func() {
-				for i, colIdx := range ht.valCols {
-					targetVecs[i].Append(
-						coldata.SliceArgs{
-							ColType:   ht.valTypes[i],
-							Src:       srcVecs[colIdx],
-							Sel:       batch.Selection(),
-							DestIdx:   ht.vals.Length(),
-							SrcEndIdx: batch.Length(),
-						},
-					)
+			if batch.Length() > 0 {
+				// We only check duplicates when there is tuple buffered.
+				if ht.vals.Length() > 0 {
+					ht.removeDuplicates(batch, ht.probeScratch.keys, ht.buildScratch.first, ht.buildScratch.next, ht.checkBuildForDistinct)
 				}
-			})
 
-			ht.buildScratch.next = append(ht.buildScratch.next, ht.probeScratch.hashBuffer[:batch.Length()]...)
-			ht.buildNextChains(ctx, ht.buildScratch.first, ht.buildScratch.next, ht.vals.Length()+1, batch.Length())
-			ht.vals.SetLength(ht.vals.Length() + batch.Length())
+				if batch.Length() > 0 {
+					ht.allocator.PerformOperation(targetVecs, func() {
+						for i, colIdx := range ht.valCols {
+							targetVecs[i].Append(
+								coldata.SliceArgs{
+									ColType:   ht.valTypes[i],
+									Src:       srcVecs[colIdx],
+									Sel:       batch.Selection(),
+									DestIdx:   ht.vals.Length(),
+									SrcEndIdx: batch.Length(),
+								},
+							)
+						}
+					})
+
+					// rebuild next chain using filtered hash buffer
+					ht.buildDoubleLinkedChains(
+						ctx, ht.probeScratch.first, ht.probeScratch.last, ht.probeScratch.next,
+						ht.probeScratch.prev, ht.probeScratch.hashBuffer, 1, batch.Length())
+
+					// TODO(azhng): fix up
+					originalBuildNextChainLen := len(ht.buildScratch.next) - 1
+					ht.buildScratch.next = append(ht.buildScratch.next, ht.probeScratch.next[1:batch.Length()+1]...)
+
+					if originalBuildNextChainLen == 0 {
+						//copy(ht.buildScratch.last, ht.probeScratch.last)
+						for _, hash := range ht.probeScratch.hashBuffer[:batch.Length()] {
+							ht.buildScratch.first[hash] = ht.probeScratch.first[hash]
+							ht.buildScratch.last[hash] = ht.probeScratch.last[hash]
+						}
+					} else {
+						ht.mergeChain(ctx, ht.probeScratch.hashBuffer[:batch.Length()], uint64(originalBuildNextChainLen))
+						for i := originalBuildNextChainLen + 1; i < len(ht.buildScratch.next); i++ {
+							if ht.buildScratch.next[i] != 0 {
+								ht.buildScratch.next[i] += uint64(originalBuildNextChainLen)
+							}
+						}
+					}
+
+					ht.vals.SetLength(ht.vals.Length() + batch.Length())
+				}
+			}
 		}
 	default:
 		execerror.VectorizedInternalPanic(fmt.Sprintf("hashTable in unhandled state"))
@@ -443,7 +481,7 @@ func (ht *hashTable) computeBuckets(
 	finalizeHash(buckets, nKeys, ht.numBuckets)
 }
 
-// buildNextChains builds the hash map from the computed hash values.
+// buildNextChain builds the hash map from the computed hash values.
 func (ht *hashTable) buildNextChains(
 	ctx context.Context, first, next []uint64, offset, batchSize int,
 ) {
@@ -454,6 +492,51 @@ func (ht *hashTable) buildNextChains(
 		hash := next[id]
 		next[id] = first[hash]
 		first[hash] = uint64(id)
+	}
+}
+
+// TODO(azhng): doc
+// buildDoubleLinkedChains builds the hash map from the computed hash values.
+func (ht *hashTable) buildDoubleLinkedChains(
+	ctx context.Context, first, last, next, prev, hashBuffer []uint64, offset, batchSize int,
+) {
+	for n := 0; n < len(ht.probeScratch.first); n += copy(ht.probeScratch.first[n:], zeroUint64Column) {
+		copy(ht.probeScratch.last[n:], zeroUint64Column)
+	}
+
+	// TODO(azhng): ri -> reverse idx
+	//              fi -> forward idx
+	ht.cancelChecker.check(ctx)
+	for ri := offset + batchSize - 1; ri >= offset; ri-- {
+		fi := offset + batchSize - ri
+		// keyID is stored into corresponding hash bucket at the front of the next
+		// chain.
+		fHash := hashBuffer[fi-1]
+		rHash := hashBuffer[ri-1]
+
+		next[ri] = first[rHash]
+		prev[fi] = last[fHash]
+
+		first[rHash] = uint64(ri)
+		last[fHash] = uint64(fi)
+	}
+}
+
+func (ht *hashTable) mergeChain(ctx context.Context, hashBuffer []uint64, offset uint64) {
+	ht.cancelChecker.check(ctx)
+
+	for _, hash := range hashBuffer {
+		pFirstId := ht.probeScratch.first[hash] + offset
+		pLastId := ht.probeScratch.last[hash] + offset
+		if ht.buildScratch.last[hash] != 0 {
+			if ht.buildScratch.last[hash] <= offset {
+				ht.buildScratch.next[ht.buildScratch.last[hash]] = pFirstId
+				ht.buildScratch.last[hash] = pLastId
+			}
+		} else {
+			ht.buildScratch.first[hash] = pFirstId
+			ht.buildScratch.last[hash] = pLastId
+		}
 	}
 }
 
@@ -519,6 +602,8 @@ func (ht *hashTable) findNext(next []uint64, nToCheck uint64) {
 func (ht *hashTable) reset() {
 	for n := 0; n < len(ht.buildScratch.first); n += copy(ht.buildScratch.first[n:], zeroUint64Column) {
 	}
+	ht.buildScratch.next = ht.buildScratch.next[:1]
+
 	ht.vals.ResetInternalBatch()
 	ht.vals.SetLength(0)
 	// ht.next, ht.same and ht.visited are reset separately before

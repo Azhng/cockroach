@@ -22,15 +22,294 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/util/randutil"
 )
 
+func TestScratch(t *testing.T) {
+	t.Run("scratch", func(t *testing.T) {
+		typs := []coltypes.T{coltypes.Int64, coltypes.Bytes}
+
+		batchSize := 3
+		oldSize := coldata.BatchSize()
+		coldata.SetBatchSizeForTests(batchSize)
+
+		inputs := tuples{
+			{1, "a"},
+			{2, "b"},
+			{3, "c"},
+			{4, "d"},
+			{5, "e"},
+			{6, "f"},
+			{1, "1"},
+			{2, "2"},
+			{3, "3"},
+		}
+
+		expected := tuples{
+			{1, "a"},
+			{2, "b"},
+			{3, "c"},
+			{4, "d"},
+			{5, "e"},
+			{6, "f"},
+		}
+
+		rng, _ := randutil.NewPseudoRand()
+		sourceSel := newOpTestSelInput(rng, batchSize, inputs, typs)
+		sourceNoSel := newOpTestInput(batchSize, inputs, typs)
+
+		t.Run("no-sel", func(t *testing.T) {
+			ud := NewUnorderedDistinct(testAllocator, sourceNoSel, []uint32{0}, typs, 1)
+			//ud := NewUnorderedDistinct(testAllocator, sourceNoSel, []uint32{0}, typs, hashTableNumBuckets)
+
+			testOutput := newOpTestOutput(ud, expected)
+			err := testOutput.VerifyAnyOrder()
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+
+		t.Run("sel", func(t *testing.T) {
+			ud := NewUnorderedDistinct(testAllocator, sourceSel, []uint32{0}, typs, 1)
+			//ud := NewUnorderedDistinct(testAllocator, sourceSel, []uint32{0}, typs, hashTableNumBuckets)
+
+			testOutput := newOpTestOutput(ud, expected)
+			err := testOutput.VerifyAnyOrder()
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+
+		coldata.SetBatchSizeForTests(oldSize)
+
+	})
+}
+
+func TestScratch2(t *testing.T) {
+	t.Run("scratch2", func(t *testing.T) {
+		typs := []coltypes.T{coltypes.Int64, coltypes.Bytes}
+
+		batchSize := 3
+		oldSize := coldata.BatchSize()
+		coldata.SetBatchSizeForTests(batchSize)
+
+		inputs := tuples{
+			{1, "a"},
+			{2, "b"},
+			{3, "c"},
+			{3, "d"},
+			{4, "e"},
+			{5, "f"},
+			{5, "1"},
+			{6, "2"},
+			{7, "3"},
+		}
+
+		expected := tuples{
+			{1, "a"},
+			{2, "b"},
+			{3, "c"},
+			{4, "e"},
+			{5, "f"},
+			{6, "2"},
+			{7, "3"},
+		}
+
+		rng, _ := randutil.NewPseudoRand()
+		sourceSel := newOpTestSelInput(rng, batchSize, inputs, typs)
+		sourceNoSel := newOpTestInput(batchSize, inputs, typs)
+
+		t.Run("no-sel", func(t *testing.T) {
+			ud := NewUnorderedDistinct(testAllocator, sourceNoSel, []uint32{0}, typs, 1)
+			//ud := NewUnorderedDistinct(testAllocator, sourceNoSel, []uint32{0}, typs, hashTableNumBuckets)
+
+			testOutput := newOpTestOutput(ud, expected)
+			err := testOutput.VerifyAnyOrder()
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+
+		t.Run("sel", func(t *testing.T) {
+			ud := NewUnorderedDistinct(testAllocator, sourceSel, []uint32{0}, typs, 1)
+			//ud := NewUnorderedDistinct(testAllocator, sourceSel, []uint32{0}, typs, hashTableNumBuckets)
+
+			testOutput := newOpTestOutput(ud, expected)
+			err := testOutput.VerifyAnyOrder()
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+
+		coldata.SetBatchSizeForTests(oldSize)
+
+	})
+}
+
+func TestScratch3(t *testing.T) {
+	t.Run("scratch3", func(t *testing.T) {
+		typs := []coltypes.T{coltypes.Int64, coltypes.Bytes}
+
+		batchSize := 5
+		oldSize := coldata.BatchSize()
+		coldata.SetBatchSizeForTests(batchSize)
+
+		inputs := tuples{
+			{1, "a"},
+			{1, "a"},
+			{1, "a"},
+			{2, "b"},
+			{3, "c"},
+			{9, "9"},
+			{3, "d"},
+			{3, "d"},
+			{3, "d"},
+			{3, "d"},
+			{3, "d"},
+			{3, "d"},
+			{3, "d"},
+			{4, "e"},
+			{4, "e"},
+			{4, "e"},
+			{4, "e"},
+			{4, "e"},
+			{4, "e"},
+			{4, "e"},
+			{4, "e"},
+			{5, "f"},
+			{5, "f"},
+			{4, "e"},
+			{4, "e"},
+			{5, "f"},
+			{5, "f"},
+			{5, "f"},
+			{5, "f"},
+			{5, "1"},
+			{7, "3"},
+			{5, "1"},
+			{5, "1"},
+			{6, "2"},
+			{6, "2"},
+			{6, "2"},
+			{6, "2"},
+			{9, "9"},
+		}
+
+		expected := tuples{
+			{1, "a"},
+			{2, "b"},
+			{9, "9"},
+			{3, "c"},
+			{4, "e"},
+			{5, "f"},
+			{7, "3"},
+			{6, "2"},
+		}
+
+		rng, _ := randutil.NewPseudoRand()
+		sourceSel := newOpTestSelInput(rng, batchSize, inputs, typs)
+		sourceNoSel := newOpTestInput(batchSize, inputs, typs)
+
+		t.Run("no-sel", func(t *testing.T) {
+			//ud := NewUnorderedDistinct(testAllocator, sourceNoSel, []uint32{0}, typs, 1)
+			ud := NewUnorderedDistinct(testAllocator, sourceNoSel, []uint32{0}, typs, 4)
+
+			testOutput := newOpTestOutput(ud, expected)
+			err := testOutput.VerifyAnyOrder()
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+
+		t.Run("sel", func(t *testing.T) {
+			//ud := NewUnorderedDistinct(testAllocator, sourceSel, []uint32{0}, typs, 1)
+			ud := NewUnorderedDistinct(testAllocator, sourceSel, []uint32{0}, typs, 4)
+
+			testOutput := newOpTestOutput(ud, expected)
+			err := testOutput.VerifyAnyOrder()
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+
+		coldata.SetBatchSizeForTests(oldSize)
+
+	})
+}
+
+func TestScratch4(t *testing.T) {
+	t.Run("scratch4", func(t *testing.T) {
+		typs := []coltypes.T{coltypes.Int64, coltypes.Bytes}
+
+		batchSize := 3
+		oldSize := coldata.BatchSize()
+		coldata.SetBatchSizeForTests(batchSize)
+
+		inputs := tuples{
+			{1, "1"},
+			{1, "2"},
+			{1, "3"},
+			{1, "4"},
+			{1, "5"},
+			{2, "6"},
+			{2, "7"},
+			{2, "8"},
+			{2, "9"},
+			{2, "10"},
+			{0, "11"},
+			{0, "12"},
+			{0, "13"},
+			{1, "14"},
+			{1, "15"},
+			{1, "16"},
+		}
+
+		expected := tuples{
+			{1, "1"},
+			{2, "6"},
+			{0, "11"},
+		}
+
+		rng, _ := randutil.NewPseudoRand()
+
+		//for _, numOfHashBucket := range []uint64{hashTableNumBuckets} {
+		for _, numOfHashBucket := range []uint64{1, 3, hashTableNumBuckets} {
+			sourceSel := newOpTestSelInput(rng, batchSize, inputs, typs)
+			sourceNoSel := newOpTestInput(batchSize, inputs, typs)
+
+			t.Run(fmt.Sprintf("no-sel/bucket=%d", numOfHashBucket), func(t *testing.T) {
+				ud := NewUnorderedDistinct(testAllocator, sourceNoSel, []uint32{0}, typs, numOfHashBucket)
+
+				testOutput := newOpTestOutput(ud, expected)
+				err := testOutput.VerifyAnyOrder()
+				if err != nil {
+					t.Fatal(err)
+				}
+			})
+
+			t.Run(fmt.Sprintf("sel/bucket=%d", numOfHashBucket), func(t *testing.T) {
+				ud := NewUnorderedDistinct(testAllocator, sourceSel, []uint32{0}, typs, numOfHashBucket)
+
+				testOutput := newOpTestOutput(ud, expected)
+				err := testOutput.VerifyAnyOrder()
+				if err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
+
+		coldata.SetBatchSizeForTests(oldSize)
+
+	})
+}
+
 func TestDistinct(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 	rng, _ := randutil.NewPseudoRand()
 	tcs := []struct {
-		distinctCols            []uint32
+		batchSize               int
 		colTypes                []coltypes.T
-		tuples                  []tuple
+		distinctCols            []uint32
 		expected                []tuple
 		isOrderedOnDistinctCols bool
+		tuples                  []tuple
 	}{
 		{
 			distinctCols: []uint32{0, 1, 2},
@@ -103,17 +382,48 @@ func TestDistinct(t *testing.T) {
 				{2.0, 3, "40", 4},
 			},
 		},
+		{
+			distinctCols: []uint32{0},
+			colTypes:     []coltypes.T{coltypes.Int64, coltypes.Bytes},
+			tuples: tuples{
+				{1, "a"},
+				{2, "b"},
+				{3, "c"},
+				{4, "d"},
+				{5, "e"},
+				{6, "f"},
+				{1, "1"},
+				{2, "2"},
+				{3, "3"},
+			},
+			expected: tuples{
+				{1, "a"},
+				{2, "b"},
+				{3, "c"},
+				{4, "d"},
+				{5, "e"},
+				{6, "f"},
+			},
+			batchSize: 3,
+		},
 	}
 
 	for _, tc := range tcs {
-		t.Run("unordered", func(t *testing.T) {
-			runTests(t, []tuples{tc.tuples}, tc.expected, unorderedVerifier,
-				func(input []Operator) (Operator, error) {
-					return NewUnorderedDistinct(
-						testAllocator, input[0], tc.distinctCols, tc.colTypes,
-						hashTableNumBuckets), nil
-				})
-		})
+		var originalBatchSize int
+		if tc.batchSize != 0 {
+			originalBatchSize = tc.batchSize
+			coldata.SetBatchSizeForTests(tc.batchSize)
+		}
+		for _, numOfHashBuckets := range []uint64{1, 2, hashTableNumBuckets} {
+			t.Run("unordered", func(t *testing.T) {
+				runTests(t, []tuples{tc.tuples}, tc.expected, unorderedVerifier,
+					func(input []Operator) (Operator, error) {
+						return NewUnorderedDistinct(
+							testAllocator, input[0], tc.distinctCols, tc.colTypes,
+							numOfHashBuckets), nil
+					})
+			})
+		}
 		if tc.isOrderedOnDistinctCols {
 			for numOrderedCols := 1; numOrderedCols < len(tc.distinctCols); numOrderedCols++ {
 				t.Run(fmt.Sprintf("partiallyOrdered/ordCols=%d", numOrderedCols), func(t *testing.T) {
@@ -136,6 +446,10 @@ func TestDistinct(t *testing.T) {
 						return NewOrderedDistinct(input[0], tc.distinctCols, tc.colTypes)
 					})
 			})
+		}
+
+		if tc.batchSize != 0 {
+			coldata.SetBatchSizeForTests(originalBatchSize)
 		}
 	}
 }

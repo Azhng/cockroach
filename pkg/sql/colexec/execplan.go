@@ -698,6 +698,7 @@ func NewColOperator(
 					NewAllocator(ctx, distinctMemAccount), inputs[0],
 					core.Distinct.DistinctColumns, typs, hashTableNumBuckets,
 				)
+				result.CanRunInAutoMode = true
 			}
 
 		case core.Ordinality != nil:
