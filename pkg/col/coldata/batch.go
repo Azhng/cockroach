@@ -88,12 +88,12 @@ func SetBatchSizeForTests(newBatchSize int) {
 				newBatchSize, MaxBatchSize),
 		)
 	}
-	if newBatchSize < MinBatchSize {
+	/*if newBatchSize < MinBatchSize {
 		panic(
 			fmt.Sprintf("requested batch size %d is smaller than MinBatchSize %d",
 				newBatchSize, MinBatchSize),
 		)
-	}
+	}*/
 	batchSize = newBatchSize
 }
 

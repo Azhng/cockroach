@@ -36,6 +36,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/cockroachdb/cockroach/pkg/base"
+	"github.com/cockroachdb/cockroach/pkg/col/coldata"
 	"github.com/cockroachdb/cockroach/pkg/kv/kvserver"
 	"github.com/cockroachdb/cockroach/pkg/roachpb"
 	"github.com/cockroachdb/cockroach/pkg/security"
@@ -1148,6 +1149,14 @@ func (t *logicTest) setup(cfg testClusterConfig) {
 	}
 	if strings.Compare(cfg.overrideVectorize, "off") != 0 {
 		distSQLKnobs.EnableVectorizedInvariantsChecker = true
+		/*batchSize := coldata.BatchSize()
+		    	if t.rng.Float64() < 0.5 {
+		  batchSize := 1
+		      }
+		*/
+		batchSize := 1
+		t.t().Logf("overriding vectorize mode to %s, setting batch size to %d", cfg.overrideVectorize, batchSize)
+		coldata.SetBatchSizeForTests(batchSize)
 	}
 	params.ServerArgs.Knobs.DistSQL = distSQLKnobs
 	if cfg.bootstrapVersion != (roachpb.Version{}) {
