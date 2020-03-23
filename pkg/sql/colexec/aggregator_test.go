@@ -17,9 +17,20 @@ import (
 	"testing"
 
 	"github.com/cockroachdb/apd"
+
+	"github.com/cockroachdb/cockroach/pkg/base"
 	"github.com/cockroachdb/cockroach/pkg/col/coldata"
 	"github.com/cockroachdb/cockroach/pkg/col/coltypes"
+	"github.com/cockroachdb/cockroach/pkg/settings/cluster"
+	"github.com/cockroachdb/cockroach/pkg/sql/colexec/typeconv"
+	"github.com/cockroachdb/cockroach/pkg/sql/execinfra"
 	"github.com/cockroachdb/cockroach/pkg/sql/execinfrapb"
+	"github.com/cockroachdb/cockroach/pkg/sql/rowexec"
+	"github.com/cockroachdb/cockroach/pkg/sql/sem/tree"
+	"github.com/cockroachdb/cockroach/pkg/sql/sqlbase"
+	"github.com/cockroachdb/cockroach/pkg/sql/types"
+	"github.com/cockroachdb/cockroach/pkg/storage"
+	"github.com/cockroachdb/cockroach/pkg/util/encoding"
 	"github.com/cockroachdb/cockroach/pkg/util/leaktest"
 	"github.com/cockroachdb/cockroach/pkg/util/randutil"
 )
@@ -138,6 +149,298 @@ func (tc *aggregatorTestCase) init() error {
 		tc.outputBatchSize = coldata.BatchSize()
 	}
 	return nil
+}
+
+func TestScratch(t *testing.T) {
+	//og := coldata.BatchSize()
+	coldata.SetBatchSizeForTests(1)
+	//defer coldata.SetBatchSizeForTests(og)
+
+	typ := []coltypes.T{coltypes.Int64, coltypes.Int64, coltypes.Float64, coltypes.Float64, coltypes.Bytes, coltypes.Bytes, coltypes.Bytes}
+	data := tuples{}
+	for a := 1; a <= 7; a++ {
+		for b := 1; b <= 7; b++ {
+			for c := 1; c <= 7; c++ {
+				for d := 1; d <= 7; d++ {
+					tp := tuple{a, b, float64(c), float64(d), fmt.Sprintf("%d", d), fmt.Sprintf("%d", d), fmt.Sprintf("%d%d%d%d-%d%d%d-%d%d", d, d, d, d, d, d, d, d, d)}
+					data = append(data, tp)
+				}
+			}
+		}
+	}
+
+	half := len(data) / 2
+	data1 := data[:half]
+	data2 := data[half:]
+
+	//fmt.Println("input1 data:")
+	//for _, row := range data {
+	//	fmt.Println(row)
+	//}
+	//fmt.Println()
+
+	input1 := newOpTestInput(1, data1, typ)
+	input2 := newOpTestInput(1, data2, typ)
+
+	st := cluster.MakeTestingClusterSettings()
+	evalCtx := tree.MakeTestingEvalContext(st)
+	ctx := context.Background()
+	diskMonitor := execinfra.NewTestDiskMonitor(ctx, st)
+
+	tempEngine, _, _ := storage.NewTempEngine(ctx, storage.DefaultStorageEngine, base.DefaultTestTempStorageConfig(st), base.DefaultTestStoreSpec)
+	flowCtx := &execinfra.FlowCtx{
+		EvalCtx: &evalCtx,
+		Cfg: &execinfra.ServerConfig{
+			Settings:    st,
+			TempStorage: tempEngine,
+			DiskMonitor: diskMonitor,
+		},
+	}
+
+	ordering := []execinfrapb.Ordering_Column{
+		{
+			ColIdx:    1,
+			Direction: execinfrapb.Ordering_Column_ASC,
+		},
+		{
+			ColIdx:    3,
+			Direction: execinfrapb.Ordering_Column_ASC,
+		},
+		{
+			ColIdx:    4,
+			Direction: execinfrapb.Ordering_Column_ASC,
+		},
+		{
+			ColIdx:    5,
+			Direction: execinfrapb.Ordering_Column_ASC,
+		},
+		{
+			ColIdx:    6,
+			Direction: execinfrapb.Ordering_Column_ASC,
+		},
+	}
+
+	op1, _ := NewSorter(testAllocator, input1, typ, ordering)
+	op2, _ := NewSorter(testAllocator, input2, typ, ordering)
+
+	mat1, _ := NewMaterializer(
+		flowCtx,
+		1,
+		op1,
+		typeconv.ToColumnTypes(typ),
+		&execinfrapb.PostProcessSpec{},
+		nil,
+		[]execinfrapb.MetadataSource{},
+		nil,
+		nil,
+	)
+
+	mat2, _ := NewMaterializer(
+		flowCtx,
+		1,
+		op2,
+		typeconv.ToColumnTypes(typ),
+		&execinfrapb.PostProcessSpec{},
+		nil,
+		[]execinfrapb.MetadataSource{},
+		nil,
+		nil,
+	)
+
+	aggFuncs := []execinfrapb.AggregatorSpec_Func{
+		execinfrapb.AggregatorSpec_ANY_NOT_NULL,
+		execinfrapb.AggregatorSpec_ANY_NOT_NULL,
+		execinfrapb.AggregatorSpec_ANY_NOT_NULL,
+		execinfrapb.AggregatorSpec_ANY_NOT_NULL,
+		execinfrapb.AggregatorSpec_ANY_NOT_NULL,
+		execinfrapb.AggregatorSpec_SUM_INT,
+	}
+
+	aggIdxs := [][]uint32{
+		{1},
+		{3},
+		{4},
+		{5},
+		{6},
+		{0},
+	}
+
+	aggregations := make([]execinfrapb.AggregatorSpec_Aggregation, len(aggFuncs))
+	for i, aggFun := range aggFuncs {
+		aggregations[i] = execinfrapb.AggregatorSpec_Aggregation{
+			Func:   aggFun,
+			ColIdx: aggIdxs[i],
+		}
+	}
+
+	aggregatorSpec := &execinfrapb.AggregatorSpec{
+		Type:             execinfrapb.AggregatorSpec_NON_SCALAR,
+		GroupCols:        []uint32{1, 3, 4, 5, 6},
+		OrderedGroupCols: []uint32{1, 3, 4, 5, 6},
+		Aggregations:     aggregations,
+	}
+
+	pspec := &execinfrapb.ProcessorSpec{
+		Input: []execinfrapb.InputSyncSpec{{ColumnTypes: typeconv.ToColumnTypes(typ)}},
+		Core:  execinfrapb.ProcessorCoreUnion{Aggregator: aggregatorSpec},
+	}
+
+	proc1, _ := rowexec.NewProcessor(
+		ctx,
+		flowCtx,
+		0,
+		&pspec.Core,
+		&pspec.Post,
+		[]execinfra.RowSource{mat1},
+		[]execinfra.RowReceiver{nil},
+		nil,
+	)
+
+	proc2, _ := rowexec.NewProcessor(
+		ctx,
+		flowCtx,
+		0,
+		&pspec.Core,
+		&pspec.Post,
+		[]execinfra.RowSource{mat2},
+		[]execinfra.RowReceiver{nil},
+		nil,
+	)
+
+	outProc1 := proc1.(execinfra.RowSource)
+	outProc1.Start(ctx)
+	outProc2 := proc2.(execinfra.RowSource)
+	outProc2.Start(ctx)
+
+	outputTypes := typeconv.ToColumnTypes([]coltypes.T{
+		coltypes.Int64,
+		coltypes.Float64,
+		coltypes.Bytes,
+		coltypes.Bytes,
+		coltypes.Bytes,
+		coltypes.Int64,
+	})
+
+	columnizer1, _ := NewColumnarizer(ctx, testAllocator, flowCtx, 0, outProc1)
+	columnizer2, _ := NewColumnarizer(ctx, testAllocator, flowCtx, 0, outProc2)
+
+	//columnizer1.Init()
+
+	//for b := columnizer1.Next(ctx); b.Length() != 0; b = columnizer1.Next(ctx) {
+	//	fmt.Print(b.String())
+	//}
+	//fmt.Println()
+
+	printRowForChecking := func(r sqlbase.EncDatumRow) []string {
+		res := make([]string, len(outputTypes))
+		for i, col := range r {
+			t := &outputTypes[i]
+			if &outputTypes[i] == types.Bytes {
+				t = types.String
+			}
+			res[i] = col.String(t)
+		}
+		return res
+	}
+	_ = printRowForChecking
+	//for {
+	//	row, meta := outProc1.Next()
+	//	fmt.Println(printRowForChecking(row), meta)
+	//	if row == nil && meta == nil {
+	//		break
+	//	}
+	//}
+
+	typ2, _ := typeconv.FromColumnTypes(outputTypes)
+
+	colAggFuns := []execinfrapb.AggregatorSpec_Func{
+		execinfrapb.AggregatorSpec_ANY_NOT_NULL,
+		execinfrapb.AggregatorSpec_ANY_NOT_NULL,
+		execinfrapb.AggregatorSpec_ANY_NOT_NULL,
+		execinfrapb.AggregatorSpec_ANY_NOT_NULL,
+		execinfrapb.AggregatorSpec_ANY_NOT_NULL,
+		execinfrapb.AggregatorSpec_SUM_INT,
+	}
+
+	op1, _ = NewOrderedAggregator(
+		testAllocator,
+		columnizer1,
+		typ2,
+		colAggFuns,
+		[]uint32{0, 1, 2, 3, 4},
+		[][]uint32{
+			{0},
+			{1},
+			{2},
+			{3},
+			{4},
+			{5},
+		},
+		false,
+	)
+	op2, _ = NewOrderedAggregator(
+		testAllocator,
+		columnizer2,
+		typ2,
+		colAggFuns,
+		[]uint32{0, 1, 2, 3, 4},
+		[][]uint32{
+			{0},
+			{1},
+			{2},
+			{3},
+			{4},
+			{5},
+		},
+		false,
+	)
+
+	ordering2 := []sqlbase.ColumnOrderInfo{
+		{
+			ColIdx:    0,
+			Direction: encoding.Ascending,
+		},
+		{
+			ColIdx:    1,
+			Direction: encoding.Ascending,
+		},
+		{
+			ColIdx:    2,
+			Direction: encoding.Ascending,
+		},
+		{
+			ColIdx:    3,
+			Direction: encoding.Ascending,
+		},
+		{
+			ColIdx:    4,
+			Direction: encoding.Ascending,
+		},
+	}
+
+	op := NewOrderedSynchronizer(testAllocator, []Operator{op1, op2}, typ2, ordering2)
+	aggOp, _ := NewOrderedAggregator(
+		testAllocator,
+		op,
+		typ2,
+		colAggFuns,
+		[]uint32{0, 1, 2, 3, 4},
+		[][]uint32{
+			{0},
+			{1},
+			{2},
+			{3},
+			{4},
+			{5},
+		},
+		false,
+	)
+	aggOp.Init()
+
+	for b := aggOp.Next(ctx); b.Length() != 0; b = aggOp.Next(ctx) {
+		fmt.Print(b.String())
+	}
+	fmt.Println()
 }
 
 func TestAggregatorOneFunc(t *testing.T) {

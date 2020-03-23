@@ -283,11 +283,16 @@ func (m *MemBatch) String() string {
 	for i := 0; i < m.Length(); i++ {
 		builder.WriteString("\n[")
 		for colIdx, v := range m.ColVecs() {
-			strs[colIdx] = fmt.Sprintf("%v", GetValueAt(v, i, v.Type()))
+			if v.Type() == coltypes.Bytes {
+				b := GetValueAt(v, i, v.Type()).([]byte)
+				strs[colIdx] = string(b)
+			} else {
+				strs[colIdx] = fmt.Sprintf("%v", GetValueAt(v, i, v.Type()))
+			}
 		}
 		builder.WriteString(strings.Join(strs, ", "))
 		builder.WriteString("]")
 	}
-	builder.WriteString("\n")
+	//builder.WriteString("\n")
 	return builder.String()
 }
