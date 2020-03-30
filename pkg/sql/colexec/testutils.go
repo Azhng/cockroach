@@ -75,6 +75,35 @@ var _ Operator = &RepeatableBatchSource{}
 // input batch forever. Note that it stores the contents of the input batch and
 // copies them into a separate output batch. The output batch is allowed to be
 // modified whereas the input batch is *not*.
+func NewRepeatableBatchSource2(batch coldata.Batch) *RepeatableBatchSource {
+	typs := make([]coltypes.T, batch.Width())
+	for i, vec := range batch.ColVecs() {
+		typs[i] = vec.Type()
+	}
+	sel := batch.Selection()
+	batchLen := batch.Length()
+	numToCopy := batchLen
+	if sel != nil {
+		maxIdx := 0
+		for _, selIdx := range sel[:batchLen] {
+			if selIdx > maxIdx {
+				maxIdx = selIdx
+			}
+		}
+		numToCopy = maxIdx + 1
+	}
+	output := coldata.NewMemBatchWithSize(typs, numToCopy)
+	src := &RepeatableBatchSource{
+		colVecs:   batch.ColVecs(),
+		typs:      typs,
+		sel:       sel,
+		batchLen:  batchLen,
+		numToCopy: numToCopy,
+		output:    output,
+	}
+	return src
+}
+
 func NewRepeatableBatchSource(allocator *Allocator, batch coldata.Batch) *RepeatableBatchSource {
 	typs := make([]coltypes.T, batch.Width())
 	for i, vec := range batch.ColVecs() {

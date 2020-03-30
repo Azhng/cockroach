@@ -1144,7 +1144,7 @@ var _ Operator = &finiteChunksSource{}
 
 func newFiniteChunksSource(batch coldata.Batch, usableCount int, matchLen int) *finiteChunksSource {
 	return &finiteChunksSource{
-		repeatableBatch: NewRepeatableBatchSource(testAllocator, batch),
+		repeatableBatch: NewRepeatableBatchSource2(batch),
 		usableCount:     usableCount,
 		matchLen:        matchLen,
 	}
