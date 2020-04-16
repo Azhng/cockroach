@@ -17,9 +17,18 @@ import (
 
 	"github.com/cockroachdb/cockroach/pkg/col/coldata"
 	"github.com/cockroachdb/cockroach/pkg/col/coltypes"
+	"github.com/cockroachdb/cockroach/pkg/sql/colcontainer"
 	"github.com/cockroachdb/cockroach/pkg/util/leaktest"
 	"github.com/stretchr/testify/assert"
 )
+
+func newTestMemBatch(types []coltypes.T) coldata.Batch {
+	return coldata.NewMemBatch(types, colcontainer.ExtendedColumnFactory)
+}
+
+func newTestMemBatchWithSize(types []coltypes.T, n int) coldata.Batch {
+	return coldata.NewMemBatchWithSize(types, n, colcontainer.ExtendedColumnFactory)
+}
 
 func TestBatchReset(t *testing.T) {
 	defer leaktest.AfterTest(t)()
@@ -74,37 +83,37 @@ func TestBatchReset(t *testing.T) {
 	var b coldata.Batch
 
 	// Simple case, reuse
-	b = coldata.NewMemBatch(typsInt)
+	b = newTestMemBatch(typsInt)
 	resetAndCheck(b, typsInt, 1, true)
 
 	// Types don't match, don't reuse
-	b = coldata.NewMemBatch(typsInt)
+	b = newTestMemBatch(typsInt)
 	resetAndCheck(b, typsBytes, 1, false)
 
 	// Columns are a prefix, reuse
-	b = coldata.NewMemBatch(typsIntBytes)
+	b = newTestMemBatch(typsIntBytes)
 	resetAndCheck(b, typsInt, 1, true)
 
 	// Exact length, reuse
-	b = coldata.NewMemBatchWithSize(typsInt, 1)
+	b = newTestMemBatchWithSize(typsInt, 1)
 	resetAndCheck(b, typsInt, 1, true)
 
 	// Insufficient capacity, don't reuse
-	b = coldata.NewMemBatchWithSize(typsInt, 1)
+	b = newTestMemBatchWithSize(typsInt, 1)
 	resetAndCheck(b, typsInt, 2, false)
 
 	// Selection vector gets reset
-	b = coldata.NewMemBatchWithSize(typsInt, 1)
+	b = newTestMemBatchWithSize(typsInt, 1)
 	b.SetSelection(true)
 	b.Selection()[0] = 7
 	resetAndCheck(b, typsInt, 1, true)
 
 	// Nulls gets reset
-	b = coldata.NewMemBatchWithSize(typsInt, 1)
+	b = newTestMemBatchWithSize(typsInt, 1)
 	b.ColVec(0).Nulls().SetNull(0)
 	resetAndCheck(b, typsInt, 1, true)
 
 	// Bytes columns use a different impl than everything else
-	b = coldata.NewMemBatch(typsBytes)
+	b = newTestMemBatch(typsBytes)
 	resetAndCheck(b, typsBytes, 1, true)
 }

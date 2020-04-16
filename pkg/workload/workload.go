@@ -251,7 +251,8 @@ func TypedTuples(count int, colTypes []coltypes.T, fn func(int) []interface{}) B
 // heavy. In performance-critical code, FillBatch should be used directly,
 // instead.
 func (b BatchedTuples) BatchRows(batchIdx int) [][]interface{} {
-	cb := coldata.NewMemBatchWithSize(nil, 0)
+	// TODO(azhng): so we cannot create Datum columns?
+	cb := coldata.NewMemBatchWithSize(nil, 0, coldata.StandardVectorizedColumnFactory)
 	var a bufalloc.ByteAllocator
 	b.FillBatch(batchIdx, cb, &a)
 	return ColBatchToRows(cb)

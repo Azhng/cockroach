@@ -30,8 +30,9 @@ import (
 //
 // In the future this can also be used to pool coldata.Vec allocations.
 type Allocator struct {
-	ctx context.Context
-	acc *mon.BoundAccount
+	ctx     context.Context
+	acc     *mon.BoundAccount
+	factory coldata.ColumnFactory
 }
 
 func selVectorSize(capacity int) int64 {
@@ -76,8 +77,12 @@ func GetProportionalBatchMemSize(b coldata.Batch, length int64) int64 {
 }
 
 // NewAllocator constructs a new Allocator instance.
-func NewAllocator(ctx context.Context, acc *mon.BoundAccount) *Allocator {
-	return &Allocator{ctx: ctx, acc: acc}
+func NewAllocator(ctx context.Context, acc *mon.BoundAccount, factory coldata.ColumnFactory) *Allocator {
+	return &Allocator{
+		ctx:     ctx,
+		acc:     acc,
+		factory: factory,
+	}
 }
 
 // NewMemBatch allocates a new in-memory coldata.Batch.
@@ -92,7 +97,7 @@ func (a *Allocator) NewMemBatchWithSize(types []coltypes.T, size int) coldata.Ba
 	if err := a.acc.Grow(a.ctx, estimatedMemoryUsage); err != nil {
 		vecerror.InternalError(err)
 	}
-	return coldata.NewMemBatchWithSize(types, size)
+	return coldata.NewMemBatchWithSize(types, size, a.factory)
 }
 
 // NewMemBatchNoCols creates a "skeleton" of new in-memory coldata.Batch. It
@@ -157,7 +162,7 @@ func (a *Allocator) NewMemColumn(t coltypes.T, n int) coldata.Vec {
 	if err := a.acc.Grow(a.ctx, estimatedMemoryUsage); err != nil {
 		vecerror.InternalError(err)
 	}
-	return coldata.NewMemColumn(t, n)
+	return coldata.NewMemColumn(t, n, a.factory)
 }
 
 // MaybeAppendColumn might append a newly allocated coldata.Vec of the given

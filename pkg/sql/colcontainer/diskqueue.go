@@ -17,15 +17,17 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"github.com/cockroachdb/errors"
+	"github.com/golang/snappy"
+
 	"github.com/cockroachdb/cockroach/pkg/col/coldata"
 	"github.com/cockroachdb/cockroach/pkg/col/colserde"
 	"github.com/cockroachdb/cockroach/pkg/col/coltypes"
+	"github.com/cockroachdb/cockroach/pkg/sql/colbase"
 	"github.com/cockroachdb/cockroach/pkg/sql/colbase/vecerror"
 	"github.com/cockroachdb/cockroach/pkg/storage/fs"
 	"github.com/cockroachdb/cockroach/pkg/util/mon"
 	"github.com/cockroachdb/cockroach/pkg/util/uuid"
-	"github.com/cockroachdb/errors"
-	"github.com/golang/snappy"
 )
 
 const (
@@ -191,7 +193,8 @@ type diskQueue struct {
 	readFile                     fs.File
 	scratchDecompressedReadBytes []byte
 
-	diskAcc *mon.BoundAccount
+	diskAcc   *mon.BoundAccount
+	allocator *colbase.Allocator
 }
 
 var _ RewindableQueue = &diskQueue{}
@@ -328,16 +331,16 @@ func (cfg *DiskQueueCfg) SetDefaultBufferSizeBytesForCacheMode() {
 
 // NewDiskQueue creates a Queue that spills to disk.
 func NewDiskQueue(
-	ctx context.Context, typs []coltypes.T, cfg DiskQueueCfg, diskAcc *mon.BoundAccount,
+	ctx context.Context, allocator *colbase.Allocator, typs []coltypes.T, cfg DiskQueueCfg, diskAcc *mon.BoundAccount,
 ) (Queue, error) {
-	return newDiskQueue(ctx, typs, cfg, diskAcc)
+	return newDiskQueue(ctx, allocator, typs, cfg, diskAcc)
 }
 
 // NewRewindableDiskQueue creates a RewindableQueue that spills to disk.
 func NewRewindableDiskQueue(
-	ctx context.Context, typs []coltypes.T, cfg DiskQueueCfg, diskAcc *mon.BoundAccount,
+	ctx context.Context, allocator *colbase.Allocator, typs []coltypes.T, cfg DiskQueueCfg, diskAcc *mon.BoundAccount,
 ) (RewindableQueue, error) {
-	d, err := newDiskQueue(ctx, typs, cfg, diskAcc)
+	d, err := newDiskQueue(ctx, allocator, typs, cfg, diskAcc)
 	if err != nil {
 		return nil, err
 	}
@@ -346,7 +349,7 @@ func NewRewindableDiskQueue(
 }
 
 func newDiskQueue(
-	ctx context.Context, typs []coltypes.T, cfg DiskQueueCfg, diskAcc *mon.BoundAccount,
+	ctx context.Context, allocator *colbase.Allocator, typs []coltypes.T, cfg DiskQueueCfg, diskAcc *mon.BoundAccount,
 ) (*diskQueue, error) {
 	if err := cfg.EnsureDefaults(); err != nil {
 		return nil, err
@@ -361,6 +364,7 @@ func newDiskQueue(
 		files:            make([]file, 0, 4),
 		writeBufferLimit: cfg.BufferSizeBytes / 3,
 		diskAcc:          diskAcc,
+		allocator:        allocator,
 	}
 	// Refer to the DiskQueueCacheMode comment for why this division of
 	// BufferSizeBytes.
@@ -717,7 +721,7 @@ func (d *diskQueue) Dequeue(ctx context.Context, b coldata.Batch) (bool, error) 
 				// TODO(asubiotto): This is a stop-gap solution. The issue is that
 				//  ownership semantics are a bit murky. Can we do better? Refer to the
 				//  issue.
-				vecs[i] = coldata.NewMemColumn(d.typs[i], coldata.BatchSize())
+				vecs[i] = d.allocator.NewMemColumn(d.typs[i], coldata.BatchSize())
 			}
 		}
 		if err := d.deserializerState.GetBatch(d.deserializerState.curBatch, b); err != nil {

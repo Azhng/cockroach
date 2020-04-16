@@ -20,12 +20,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func newTestMemColumn(typ coltypes.T, n int) Vec {
+	return NewMemColumn(typ, n, StandardVectorizedColumnFactory)
+}
+
 func TestMemColumnWindow(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 
 	rng, _ := randutil.NewPseudoRand()
 
-	c := NewMemColumn(coltypes.Int64, BatchSize())
+	c := newTestMemColumn(coltypes.Int64, BatchSize())
 
 	ints := c.Int64()
 	for i := 0; i < BatchSize(); i++ {
@@ -113,7 +117,7 @@ func TestNullRanges(t *testing.T) {
 		},
 	}
 
-	c := NewMemColumn(coltypes.Int64, BatchSize())
+	c := newTestMemColumn(coltypes.Int64, BatchSize())
 	for _, tc := range tcs {
 		c.Nulls().UnsetNulls()
 		c.Nulls().SetNullRange(tc.start, tc.end)
@@ -136,7 +140,7 @@ func TestAppend(t *testing.T) {
 	// TODO(asubiotto): Test nulls.
 	const typ = coltypes.Int64
 
-	src := NewMemColumn(typ, BatchSize())
+	src := newTestMemColumn(typ, BatchSize())
 	sel := make([]int, len(src.Int64()))
 	for i := range sel {
 		sel[i] = i
@@ -209,7 +213,7 @@ func TestAppend(t *testing.T) {
 			tc.args.SrcEndIdx = BatchSize()
 		}
 		t.Run(tc.name, func(t *testing.T) {
-			dest := NewMemColumn(typ, BatchSize())
+			dest := newTestMemColumn(typ, BatchSize())
 			dest.Append(tc.args)
 			require.Equal(t, tc.expectedLength, len(dest.Int64()))
 		})
@@ -219,7 +223,7 @@ func TestAppend(t *testing.T) {
 // TestAppendBytesWithLastNull makes sure that Append handles correctly the
 // case when the last element of Bytes vector is NULL.
 func TestAppendBytesWithLastNull(t *testing.T) {
-	src := NewMemColumn(coltypes.Bytes, 4)
+	src := newTestMemColumn(coltypes.Bytes, 4)
 	sel := []int{0, 2, 3}
 	src.Bytes().Set(0, []byte("zero"))
 	src.Nulls().SetNull(1)
@@ -232,8 +236,8 @@ func TestAppendBytesWithLastNull(t *testing.T) {
 		SrcStartIdx: 0,
 		SrcEndIdx:   len(sel),
 	}
-	dest := NewMemColumn(coltypes.Bytes, 3)
-	expected := NewMemColumn(coltypes.Bytes, 3)
+	dest := newTestMemColumn(coltypes.Bytes, 3)
+	expected := newTestMemColumn(coltypes.Bytes, 3)
 	for _, withSel := range []bool{false, true} {
 		t.Run(fmt.Sprintf("AppendBytesWithLastNull/sel=%t", withSel), func(t *testing.T) {
 			expected.Nulls().UnsetNulls()
@@ -273,7 +277,7 @@ func TestCopy(t *testing.T) {
 	// TODO(asubiotto): Test nulls.
 	const typ = coltypes.Int64
 
-	src := NewMemColumn(typ, BatchSize())
+	src := newTestMemColumn(typ, BatchSize())
 	srcInts := src.Int64()
 	for i := range srcInts {
 		srcInts[i] = int64(i + 1)
@@ -332,7 +336,7 @@ func TestCopy(t *testing.T) {
 		tc.args.Src = src
 		tc.args.ColType = typ
 		t.Run(tc.name, func(t *testing.T) {
-			dest := NewMemColumn(typ, BatchSize())
+			dest := newTestMemColumn(typ, BatchSize())
 			dest.Copy(tc.args)
 			destInts := dest.Int64()
 			firstNonZero := 0
@@ -353,7 +357,7 @@ func TestCopyNulls(t *testing.T) {
 	const typ = coltypes.Int64
 
 	// Set up the destination vector.
-	dst := NewMemColumn(typ, BatchSize())
+	dst := newTestMemColumn(typ, BatchSize())
 	dstInts := dst.Int64()
 	for i := range dstInts {
 		dstInts[i] = int64(1)
@@ -364,7 +368,7 @@ func TestCopyNulls(t *testing.T) {
 	}
 
 	// Set up the source vector.
-	src := NewMemColumn(typ, BatchSize())
+	src := newTestMemColumn(typ, BatchSize())
 	srcInts := src.Int64()
 	for i := range srcInts {
 		srcInts[i] = 2
@@ -410,7 +414,7 @@ func TestCopySelOnDestDoesNotUnsetOldNulls(t *testing.T) {
 
 	// Set up the destination vector. It is all nulls except for a single
 	// non-null at index 0.
-	dst := NewMemColumn(typ, BatchSize())
+	dst := newTestMemColumn(typ, BatchSize())
 	dstInts := dst.Int64()
 	for i := range dstInts {
 		dstInts[i] = 1
@@ -419,7 +423,7 @@ func TestCopySelOnDestDoesNotUnsetOldNulls(t *testing.T) {
 	dst.Nulls().UnsetNull(0)
 
 	// Set up the source vector with two nulls.
-	src := NewMemColumn(typ, BatchSize())
+	src := newTestMemColumn(typ, BatchSize())
 	srcInts := src.Int64()
 	for i := range srcInts {
 		srcInts[i] = 2
@@ -476,13 +480,13 @@ func BenchmarkAppend(b *testing.B) {
 
 	for _, typ := range []coltypes.T{coltypes.Bytes, coltypes.Decimal, coltypes.Int64} {
 		for _, nullProbability := range []float64{0, 0.2} {
-			src := NewMemColumn(typ, BatchSize())
+			src := newTestMemColumn(typ, BatchSize())
 			RandomVec(rng, typ, 8 /* bytesFixedLength */, src, BatchSize(), nullProbability)
 			for _, bc := range benchCases {
 				bc.args.Src = src
 				bc.args.ColType = typ
 				bc.args.SrcEndIdx = BatchSize()
-				dest := NewMemColumn(typ, BatchSize())
+				dest := newTestMemColumn(typ, BatchSize())
 				b.Run(fmt.Sprintf("%s/%s/NullProbability=%.1f", typ, bc.name, nullProbability), func(b *testing.B) {
 					b.SetBytes(8 * int64(BatchSize()))
 					bc.args.DestIdx = 0
@@ -520,13 +524,13 @@ func BenchmarkCopy(b *testing.B) {
 
 	for _, typ := range []coltypes.T{coltypes.Bytes, coltypes.Decimal, coltypes.Int64} {
 		for _, nullProbability := range []float64{0, 0.2} {
-			src := NewMemColumn(typ, BatchSize())
+			src := newTestMemColumn(typ, BatchSize())
 			RandomVec(rng, typ, 8 /* bytesFixedLength */, src, BatchSize(), nullProbability)
 			for _, bc := range benchCases {
 				bc.args.Src = src
 				bc.args.ColType = typ
 				bc.args.SrcEndIdx = BatchSize()
-				dest := NewMemColumn(typ, BatchSize())
+				dest := newTestMemColumn(typ, BatchSize())
 				b.Run(fmt.Sprintf("%s/%s/NullProbability=%.1f", typ, bc.name, nullProbability), func(b *testing.B) {
 					b.SetBytes(8 * int64(BatchSize()))
 					for i := 0; i < b.N; i++ {

@@ -15,8 +15,10 @@ import (
 	"os"
 	"testing"
 
+	"github.com/cockroachdb/cockroach/pkg/col/coldata"
 	"github.com/cockroachdb/cockroach/pkg/settings/cluster"
 	"github.com/cockroachdb/cockroach/pkg/sql/colbase"
+	"github.com/cockroachdb/cockroach/pkg/sql/colexec"
 	"github.com/cockroachdb/cockroach/pkg/sql/execinfra"
 	"github.com/cockroachdb/cockroach/pkg/util/mon"
 	"github.com/cockroachdb/cockroach/pkg/util/randutil"
@@ -36,17 +38,20 @@ var (
 	// and a disk account bound to it for use in tests.
 	testDiskMonitor *mon.BytesMonitor
 	testDiskAcc     *mon.BoundAccount
+
+	testColumnFactory coldata.ColumnFactory
 )
 
 func TestMain(m *testing.M) {
 	randutil.SeedForTests()
 	os.Exit(func() int {
 		ctx := context.Background()
+		testColumnFactory = colexec.NewExtendedColumnFactory(nil /* evalCtx */)
 		testMemMonitor = execinfra.NewTestMemMonitor(ctx, cluster.MakeTestingClusterSettings())
 		defer testMemMonitor.Stop(ctx)
 		memAcc := testMemMonitor.MakeBoundAccount()
 		testMemAcc = &memAcc
-		testAllocator = colbase.NewAllocator(ctx, testMemAcc)
+		testAllocator = colbase.NewAllocator(ctx, testMemAcc, testColumnFactory)
 		defer testMemAcc.Close(ctx)
 
 		testDiskMonitor = execinfra.NewTestDiskMonitor(ctx, cluster.MakeTestingClusterSettings())

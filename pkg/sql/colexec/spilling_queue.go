@@ -239,9 +239,9 @@ func (q *spillingQueue) maybeSpillToDisk(ctx context.Context) error {
 	log.VEvent(ctx, 1, "spilled to disk")
 	var diskQueue colcontainer.Queue
 	if q.rewindable {
-		diskQueue, err = colcontainer.NewRewindableDiskQueue(ctx, q.typs, q.diskQueueCfg, q.diskAcc)
+		diskQueue, err = colcontainer.NewRewindableDiskQueue(ctx, q.unlimitedAllocator, q.typs, q.diskQueueCfg, q.diskAcc)
 	} else {
-		diskQueue, err = colcontainer.NewDiskQueue(ctx, q.typs, q.diskQueueCfg, q.diskAcc)
+		diskQueue, err = colcontainer.NewDiskQueue(ctx, q.unlimitedAllocator, q.typs, q.diskQueueCfg, q.diskAcc)
 	}
 	if err != nil {
 		return err

@@ -19,8 +19,8 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/util/duration"
 )
 
-// column is an interface that represents a raw array of a Go native type.
-type column interface{}
+// Column is an interface that represents a raw array of a Go native type.
+type Column interface{}
 
 // SliceArgs represents the arguments passed in to Vec.Append and Nulls.set.
 type SliceArgs struct {
@@ -83,7 +83,7 @@ type Vec interface {
 	// Col returns the raw, typeless backing storage for this Vec.
 	Col() interface{}
 
-	// SetCol sets the member column (in the case of mutable columns).
+	// SetCol sets the member Column (in the case of mutable columns).
 	SetCol(interface{})
 
 	// TemplateType returns an []interface{} and is used for operator templates.
@@ -112,14 +112,14 @@ type Vec interface {
 	// behavior).
 	Window(colType coltypes.T, start int, end int) Vec
 
-	// MaybeHasNulls returns true if the column possibly has any null values, and
-	// returns false if the column definitely has no null values.
+	// MaybeHasNulls returns true if the Column possibly has any null values, and
+	// returns false if the Column definitely has no null values.
 	MaybeHasNulls() bool
 
-	// Nulls returns the nulls vector for the column.
+	// Nulls returns the nulls vector for the Column.
 	Nulls() *Nulls
 
-	// SetNulls sets the nulls vector for this column.
+	// SetNulls sets the nulls vector for this Column.
 	SetNulls(*Nulls)
 
 	// Length returns the length of the slice that is underlying this Vec.
@@ -142,37 +142,59 @@ var _ Vec = &memColumn{}
 // a generic interface{} to the proper type when requested.
 type memColumn struct {
 	t     coltypes.T
-	col   column
+	col   Column
 	nulls Nulls
 }
 
-// NewMemColumn returns a new memColumn, initialized with a length.
-func NewMemColumn(t coltypes.T, n int) Vec {
-	nulls := NewNulls(n)
+// TODO(azhng): better name
+type ColumnFactory interface {
+	// TODO(azhng): make it Column
+	ConstructColumn(t coltypes.T, n int) Column
+}
 
+type defaultColumnFactory struct{}
+
+var StandardVectorizedColumnFactory ColumnFactory = &defaultColumnFactory{}
+
+func (cf *defaultColumnFactory) ConstructColumn(t coltypes.T, n int) Column {
 	switch t {
 	case coltypes.Bool:
-		return &memColumn{t: t, col: make([]bool, n), nulls: nulls}
+		return make([]bool, n)
 	case coltypes.Bytes:
-		return &memColumn{t: t, col: NewBytes(n), nulls: nulls}
+		return NewBytes(n)
 	case coltypes.Int16:
-		return &memColumn{t: t, col: make([]int16, n), nulls: nulls}
+		return make([]int16, n)
 	case coltypes.Int32:
-		return &memColumn{t: t, col: make([]int32, n), nulls: nulls}
+		return make([]int32, n)
 	case coltypes.Int64:
-		return &memColumn{t: t, col: make([]int64, n), nulls: nulls}
+		return make([]int64, n)
 	case coltypes.Float64:
-		return &memColumn{t: t, col: make([]float64, n), nulls: nulls}
+		return make([]float64, n)
 	case coltypes.Decimal:
-		return &memColumn{t: t, col: make([]apd.Decimal, n), nulls: nulls}
+		return make([]apd.Decimal, n)
 	case coltypes.Timestamp:
-		return &memColumn{t: t, col: make([]time.Time, n), nulls: nulls}
+		return make([]time.Time, n)
 	case coltypes.Interval:
-		return &memColumn{t: t, col: make([]duration.Duration, n), nulls: nulls}
+		return make([]duration.Duration, n)
 	case coltypes.Unhandled:
-		return unknown{}
+		return nil
 	default:
 		panic(fmt.Sprintf("unhandled type %s", t))
+	}
+}
+
+// NewMemColumn returns a new memColumn, initialized with a length
+// using the given column factory.
+func NewMemColumn(t coltypes.T, n int, factory ColumnFactory) Vec {
+	nulls := NewNulls(n)
+
+	if t == coltypes.Unhandled {
+		return unknown{}
+	}
+	return &memColumn{
+		t:     t,
+		col:   factory.ConstructColumn(t, n),
+		nulls: nulls,
 	}
 }
 

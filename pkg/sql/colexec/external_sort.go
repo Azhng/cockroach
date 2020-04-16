@@ -230,7 +230,8 @@ func newExternalSorter(
 		inMemSorter:        inMemSorter,
 		inMemSorterInput:   inputPartitioner.(*inputPartitioningOperator),
 		partitionerCreator: func() colcontainer.PartitionedQueue {
-			return colcontainer.NewPartitionedDiskQueue(inputTypes, diskQueueCfg, partitionedDiskQueueSemaphore, colcontainer.PartitionerStrategyCloseOnNewPartition, diskAcc)
+			return colcontainer.NewPartitionedDiskQueue(unlimitedAllocator, inputTypes, diskQueueCfg,
+				partitionedDiskQueueSemaphore, colcontainer.PartitionerStrategyCloseOnNewPartition, diskAcc)
 		},
 		inputTypes:          inputTypes,
 		ordering:            ordering,

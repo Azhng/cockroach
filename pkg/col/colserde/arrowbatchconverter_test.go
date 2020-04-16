@@ -20,6 +20,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/col/colserde"
 	"github.com/cockroachdb/cockroach/pkg/col/coltypes"
 	"github.com/cockroachdb/cockroach/pkg/sql/colbase"
+	"github.com/cockroachdb/cockroach/pkg/sql/colcontainer"
 	"github.com/cockroachdb/cockroach/pkg/util/leaktest"
 	"github.com/cockroachdb/cockroach/pkg/util/randutil"
 	"github.com/stretchr/testify/require"
@@ -63,7 +64,7 @@ func TestArrowBatchConverterRandom(t *testing.T) {
 
 	arrowData, err := c.BatchToArrow(b)
 	require.NoError(t, err)
-	actual := coldata.NewMemBatchWithSize(nil, 0)
+	actual := coldata.NewMemBatchWithSize(nil, 0, colcontainer.ExtendedColumnFactory)
 	require.NoError(t, c.ArrowToBatch(arrowData, actual))
 
 	coldata.AssertEquivalentBatches(t, expected, actual)
@@ -90,7 +91,7 @@ func roundTripBatch(
 	if err := r.Deserialize(&arrowDataOut, buf.Bytes()); err != nil {
 		return nil, err
 	}
-	actual := coldata.NewMemBatchWithSize(nil, 0)
+	actual := coldata.NewMemBatchWithSize(nil, 0, colcontainer.ExtendedColumnFactory)
 	if err := c.ArrowToBatch(arrowDataOut, actual); err != nil {
 		return nil, err
 	}
@@ -209,7 +210,7 @@ func BenchmarkArrowBatchConverter(b *testing.B) {
 			data, err := c.BatchToArrow(batch)
 			require.NoError(b, err)
 			testPrefix := fmt.Sprintf("%s/nullFraction=%0.2f", typ.String(), nullFraction)
-			result := coldata.NewMemBatch([]coltypes.T{typ})
+			result := coldata.NewMemBatch([]coltypes.T{typ}, colcontainer.ExtendedColumnFactory)
 			b.Run(testPrefix+"/ArrowToBatch", func(b *testing.B) {
 				b.SetBytes(numBytes[typIdx])
 				for i := 0; i < b.N; i++ {

@@ -88,9 +88,9 @@ func TestDiskQueue(t *testing.T) {
 						err error
 					)
 					if rewindable {
-						q, err = colcontainer.NewRewindableDiskQueue(ctx, typs, queueCfg, testDiskAcc)
+						q, err = colcontainer.NewRewindableDiskQueue(ctx, testAllocator, typs, queueCfg, testDiskAcc)
 					} else {
-						q, err = colcontainer.NewDiskQueue(ctx, typs, queueCfg, testDiskAcc)
+						q, err = colcontainer.NewDiskQueue(ctx, testAllocator, typs, queueCfg, testDiskAcc)
 					}
 					require.NoError(t, err)
 

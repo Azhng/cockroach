@@ -98,16 +98,16 @@ func ResetBatchSizeForTests() {
 // NewMemBatch allocates a new in-memory Batch. A coltypes.Unknown type
 // will create a placeholder Vec that may not be accessed.
 // TODO(jordan): pool these allocations.
-func NewMemBatch(types []coltypes.T) Batch {
-	return NewMemBatchWithSize(types, BatchSize())
+func NewMemBatch(types []coltypes.T, factory ColumnFactory) Batch {
+	return NewMemBatchWithSize(types, BatchSize(), factory)
 }
 
 // NewMemBatchWithSize allocates a new in-memory Batch with the given column
 // size. Use for operators that have a precisely-sized output batch.
-func NewMemBatchWithSize(types []coltypes.T, size int) Batch {
+func NewMemBatchWithSize(types []coltypes.T, size int, factory ColumnFactory) Batch {
 	b := NewMemBatchNoCols(types, size).(*MemBatch)
 	for i, t := range types {
-		b.b[i] = NewMemColumn(t, size)
+		b.b[i] = NewMemColumn(t, size, factory)
 	}
 	return b
 }
@@ -126,7 +126,7 @@ func NewMemBatchNoCols(types []coltypes.T, size int) Batch {
 }
 
 // ZeroBatch is a schema-less Batch of length 0.
-var ZeroBatch = &zeroBatch{MemBatch: NewMemBatchWithSize(nil /* types */, 0 /* size */).(*MemBatch)}
+var ZeroBatch = &zeroBatch{MemBatch: NewMemBatchWithSize(nil /* types */, 0 /* size */, StandardVectorizedColumnFactory).(*MemBatch)}
 
 // zeroBatch is a wrapper around MemBatch that prohibits modifications of the
 // batch.
@@ -248,7 +248,7 @@ func ResetNoTruncation(m *MemBatch, types []coltypes.T, length int) {
 		}
 	}
 	if cannotReuse {
-		*m = *NewMemBatchWithSize(types, length).(*MemBatch)
+		*m = *NewMemBatchWithSize(types, length, StandardVectorizedColumnFactory).(*MemBatch)
 		m.SetLength(length)
 		return
 	}

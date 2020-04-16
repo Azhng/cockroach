@@ -16,6 +16,7 @@ import (
 
 	"github.com/cockroachdb/cockroach/pkg/col/coldata"
 	"github.com/cockroachdb/cockroach/pkg/col/coltypes"
+	"github.com/cockroachdb/cockroach/pkg/sql/colbase"
 	"github.com/cockroachdb/cockroach/pkg/sql/colbase/vecerror"
 	"github.com/cockroachdb/cockroach/pkg/util/mon"
 	"github.com/cockroachdb/errors"
@@ -119,6 +120,7 @@ type PartitionedDiskQueue struct {
 	numOpenFDs  int
 	fdSemaphore semaphore.Semaphore
 	diskAcc     *mon.BoundAccount
+	allocator   *colbase.Allocator
 }
 
 var _ PartitionedQueue = &PartitionedDiskQueue{}
@@ -134,6 +136,7 @@ var _ PartitionedQueue = &PartitionedDiskQueue{}
 // Note that actual file descriptors open may be less than, but never more than
 // the number acquired through the semaphore.
 func NewPartitionedDiskQueue(
+	allocator *colbase.Allocator,
 	typs []coltypes.T,
 	cfg DiskQueueCfg,
 	fdSemaphore semaphore.Semaphore,
@@ -155,6 +158,7 @@ func NewPartitionedDiskQueue(
 		lastEnqueuedPartitionIdx: -1,
 		fdSemaphore:              fdSemaphore,
 		diskAcc:                  diskAcc,
+		allocator:                allocator,
 	}
 }
 
@@ -251,7 +255,7 @@ func (p *PartitionedDiskQueue) Enqueue(
 			}
 		}
 		// Partition has not been created yet.
-		q, err := NewDiskQueue(ctx, p.typs, p.cfg, p.diskAcc)
+		q, err := NewDiskQueue(ctx, p.allocator, p.typs, p.cfg, p.diskAcc)
 		if err != nil {
 			return err
 		}
