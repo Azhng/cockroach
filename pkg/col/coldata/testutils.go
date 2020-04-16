@@ -14,6 +14,8 @@ import (
 	"bytes"
 
 	"github.com/cockroachdb/cockroach/pkg/col/coltypes"
+	"github.com/cockroachdb/cockroach/pkg/sql/sem/tree"
+
 	"github.com/stretchr/testify/require"
 )
 
@@ -99,7 +101,9 @@ func AssertEquivalentBatches(t testingT, expected, actual Batch) {
 			resultDatum := actualVec.Datum().Slice(0 /* start */, actual.Length())
 			require.Equal(t, expectedDatum.Len(), resultDatum.Len())
 			for i := 0; i < expectedDatum.Len(); i++ {
-				if expectedDatum.Get(i).(*ContextWrappedDatum).CompareDatum(resultDatum.Get(i)) != 0 {
+				if expectedDatum.Get(i).(*ContextWrappedDatum).CompareDatum(resultDatum.Get(i), func(_ interface{}, l, r tree.Datum) int {
+					return l.Compare(nil /* ctx */, r)
+				}) != 0 {
 					t.Fatalf("Datum mismatch at index %d:\nexpected:\n%sactual:\n%s", i, expectedDatum.Get(i), resultDatum.Get(i))
 				}
 			}

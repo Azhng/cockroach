@@ -21,6 +21,8 @@ import (
 	"github.com/apache/arrow/go/arrow/memory"
 	"github.com/cockroachdb/cockroach/pkg/col/coldata"
 	"github.com/cockroachdb/cockroach/pkg/col/coltypes"
+	"github.com/cockroachdb/cockroach/pkg/sql/sem/tree"
+	"github.com/cockroachdb/cockroach/pkg/sql/sqlbase"
 	"github.com/cockroachdb/cockroach/pkg/sql/types"
 	"github.com/cockroachdb/cockroach/pkg/util/duration"
 	"github.com/cockroachdb/errors"
@@ -384,8 +386,22 @@ func (c *ArrowBatchConverter) ArrowToBatch(data []*array.Data, b coldata.Batch) 
 			vecArr := vec.Datum()
 			// TODO(azhng): extends unmarshaling support to more than json.
 			vecArr.SetType(types.Jsonb)
+			var da sqlbase.DatumAlloc
+			// TODO(azhng): put it in one place
+			unmarshalingDelegate := func(dv *coldata.DatumVec, b []byte) (tree.Datum, error) {
+				switch typ := dv.Type(); typ.Family() {
+				case types.JsonFamily:
+					datum, _, err := sqlbase.DecodeTableValue(&da, typ, b)
+					if err != nil {
+						return nil, err
+					}
+					return datum, nil
+				default:
+					return nil, fmt.Errorf("unsupported type for DatumVec %v", typ)
+				}
+			}
 			for i := 0; i < len(offsets)-1; i++ {
-				err := vecArr.UnmarshalTo(i, bytes[offsets[i]:offsets[i+1]])
+				err := vecArr.UnmarshalTo(i, bytes[offsets[i]:offsets[i+1]], unmarshalingDelegate)
 				if err != nil {
 					return err
 				}

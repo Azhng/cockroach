@@ -1152,7 +1152,14 @@ func (c intervalCustomizer) getBinOpAssignFunc() assignFunc {
 func (c datumCustomizer) getCmpOpCompareFunc() compareFunc {
 	return func(target, l, r string) string {
 		return fmt.Sprintf(`
-			%s = %s.(*coldata.ContextWrappedDatum).CompareDatum(%s)
+			___lhs := %[2]s.(*coldata.ContextWrappedDatum)
+			___delegate := func(evalCtx interface{}, l, r tree.Datum) int {
+				if evalCtx != nil {
+					return l.Compare(evalCtx.(*tree.EvalContext), r)
+				}
+				return l.Compare(nil, r)
+			}
+			%[1]s = ___lhs.CompareDatum(%[3]s, ___delegate)
 		`, target, l, r)
 	}
 }

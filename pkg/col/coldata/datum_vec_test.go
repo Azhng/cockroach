@@ -22,6 +22,10 @@ import (
 func TestContextWrappedDatum(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 
+	cmpDelegate := func(_ interface{}, l, r tree.Datum) int {
+		return l.Compare(nil /* ctx */, r)
+	}
+
 	evalCtx := &tree.EvalContext{}
 
 	var d1 *ContextWrappedDatum
@@ -33,7 +37,7 @@ func TestContextWrappedDatum(t *testing.T) {
 	d2 = &tree.DJSON{JSON: json.FromString("string")}
 
 	// ContextWrappedDatum can be compared with regular datum.
-	require.Equal(t, 0 /* expected */, d1.CompareDatum(d2))
+	require.Equal(t, 0 /* expected */, d1.CompareDatum(d2, cmpDelegate))
 
 	d2 = &ContextWrappedDatum{
 		Datum:   d2,
@@ -41,21 +45,22 @@ func TestContextWrappedDatum(t *testing.T) {
 	}
 
 	// ContextWrappedDatum can be compared with another ContextWrappedDatum.
-	require.Equal(t, 0 /* expected */, d1.CompareDatum(d2))
+	require.Equal(t, 0 /* expected */, d1.CompareDatum(d2, cmpDelegate))
 
 	// ContextWrappedDatum implicitly views nil as tree.DNull.
-	require.Equal(t, d1.CompareDatum(tree.DNull) /* expected */, d1.CompareDatum(nil /* other */))
+	require.Equal(t, d1.CompareDatum(tree.DNull, cmpDelegate), /* expected */
+		d1.CompareDatum(nil /* other */, cmpDelegate))
 
 	// ContextWrappedDatum panics if compared with incompatible type.
 	d2 = tree.NewDString("s")
 	require.Panics(t,
-		func() { d1.CompareDatum(d2) },
+		func() { d1.CompareDatum(d2, cmpDelegate) },
 		"Different datum type should cause panic when compared",
 	)
 
 	d2 = &ContextWrappedDatum{Datum: d2}
 	require.Panics(t,
-		func() { d1.CompareDatum(d2) },
+		func() { d1.CompareDatum(d2, cmpDelegate) },
 		"Different datum type should cause panic when compared",
 	)
 }

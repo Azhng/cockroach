@@ -30,10 +30,9 @@ type DatumVec struct {
 	// data is the underlying data stored in DatumVec.
 	data []tree.Datum
 
+	// TODO(azhng):
 	// evalCtx is required for most of the tree.Datum interfaces.
-	evalCtx *tree.EvalContext
-
-	da sqlbase.DatumAlloc
+	evalCtx interface{}
 }
 
 // ContextWrappedDatum wraps a tree.Datum with tree.EvalContext. This is the
@@ -42,11 +41,16 @@ type DatumVec struct {
 // tree.EvalContext everywhere into vectorized engine.
 type ContextWrappedDatum struct {
 	tree.Datum
-	evalCtx *tree.EvalContext
+	evalCtx interface{}
 }
 
+type DatumCompareDelegate func(evalCtx interface{}, l, r tree.Datum) int
+type DatumMarshalDelegate func(datum tree.Datum) ([]byte, error)
+type DatumUnmarshalDelegate func(*DatumVec, []byte) (tree.Datum, error)
+
+// TODO(azhng):
 // CompareDatum returns the comparison between two datums.
-func (cd *ContextWrappedDatum) CompareDatum(other tree.Datum) int {
+func (cd *ContextWrappedDatum) CompareDatum(other tree.Datum, delegate DatumCompareDelegate) int {
 	if other == nil {
 		other = tree.DNull
 	}
@@ -54,7 +58,7 @@ func (cd *ContextWrappedDatum) CompareDatum(other tree.Datum) int {
 	if ou, ok := other.(*ContextWrappedDatum); ok {
 		unwrapped = ou.Datum
 	}
-	return cd.Datum.Compare(cd.evalCtx, unwrapped)
+	return delegate(cd.evalCtx, cd.Datum, unwrapped)
 }
 
 // NewDatumVec returns a DatumVec struct with capacity of n.
@@ -162,23 +166,23 @@ func (dv *DatumVec) MarshalAt(i int) ([]byte, error) {
 }
 
 // UnmarshalTextAt unmarshals the byte to datum and set it at i.
-func (dv *DatumVec) UnmarshalTo(i int, b []byte) error {
-	switch dv.typ.Family() {
-	case types.JsonFamily:
-		datum, _, err := sqlbase.DecodeTableValue(&dv.da, dv.typ, b)
-		if err != nil {
-			return err
-		}
-		dv.data[i] = datum
-		return nil
-	default:
-		return fmt.Errorf("unsupported type for DatumVec %v", dv.typ)
+func (dv *DatumVec) UnmarshalTo(i int, b []byte, delegate DatumUnmarshalDelegate) error {
+	datum, err := delegate(dv, b)
+	if err != nil {
+		return err
 	}
+	dv.data[i] = datum
+	return nil
 }
 
 // SetType sets the type of DatumVec.
 func (dv *DatumVec) SetType(t *types.T) {
 	dv.typ = t
+}
+
+// Type returns the type used in DatumVec
+func (dv *DatumVec) Type() *types.T {
+	return dv.typ
 }
 
 // ensureValidDatum ensures that the given datum has the same type as *types.T
@@ -203,7 +207,7 @@ func (dv *DatumVec) ensureValidDatumType(typ *types.T) {
 
 // unwrapContextWrappedDatum unwraps the datum and  if it is wrapped inside
 // ContextWrappedDatum. This is to prevent us from recursively wrapping datums.
-func unwrapContextWrappedDatum(v tree.Datum) (tree.Datum, *tree.EvalContext) {
+func unwrapContextWrappedDatum(v tree.Datum) (tree.Datum, interface{}) {
 	if v == nil {
 		return tree.DNull, nil
 	}
