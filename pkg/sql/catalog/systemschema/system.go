@@ -365,6 +365,21 @@ CREATE TABLE system.join_tokens (
     expiration   TIMESTAMPTZ NOT NULL,
     FAMILY "primary" (id, secret, expiration)
 )`
+
+	ExperimentalSQLStmtStatsTableSchema = `
+CREATE TABLE system.sql_stmt_stats (
+	  fingerprint  INT8 NOT NULL,
+		timestamp    TIMESTAMP NOT NULL,
+		stats        BYTES NOT NULL,
+    PRIMARY KEY (fingerprint, timestamp);
+)`
+	ExperimentalSQLTxnStatsTableSchema = `
+CREATE TABLE system.sql_txn_stats (
+	  fingerprint  INT8 NOT NULL,
+		timestamp    TIMESTAMP NOT NULL,
+		stats        BYTES NOT NULL,
+    PRIMARY KEY (fingerprint, timestamp);
+)`
 )
 
 func pk(name string) descpb.IndexDescriptor {
@@ -1804,6 +1819,88 @@ var (
 		NextIndexID: 2,
 		Privileges: descpb.NewCustomSuperuserPrivilegeDescriptor(
 			descpb.SystemAllowedPrivileges[keys.JoinTokensTableID], security.NodeUserName()),
+		FormatVersion:  descpb.InterleavedFormatVersion,
+		NextMutationID: 1,
+	})
+
+	ExperimentalSQLStmtStatsTable = makeTable(descpb.TableDescriptor{
+		Name:                    "experimental_sql_stmt_stats",
+		ID:                      keys.ExperimentalSQLStmtStatsTableID,
+		ParentID:                keys.SystemDatabaseID,
+		UnexposedParentSchemaID: keys.PublicSchemaID,
+		Version:                 1,
+		Columns: []descpb.ColumnDescriptor{
+			{Name: "fingerprint", ID: 1, Type: types.Int, Nullable: false},
+			{Name: "timestamp", ID: 2, Type: types.Timestamp, Nullable: false},
+			{Name: "stats", ID: 3, Type: types.Bytes, Nullable: false},
+		},
+		NextColumnID: 4,
+		Families: []descpb.ColumnFamilyDescriptor{
+			{
+				Name:            "primary",
+				ID:              0,
+				ColumnNames:     []string{"fingerprint", "timestamp", "stats"},
+				ColumnIDs:       []descpb.ColumnID{1, 2, 3},
+				DefaultColumnID: 0,
+			},
+		},
+		NextFamilyID: 1,
+		PrimaryIndex: descpb.IndexDescriptor{
+			Name:        tabledesc.PrimaryKeyIndexName,
+			ID:          1,
+			Unique:      true,
+			ColumnNames: []string{"fingerprint", "timestamp"},
+			ColumnDirections: []descpb.IndexDescriptor_Direction{
+				descpb.IndexDescriptor_ASC,
+				descpb.IndexDescriptor_ASC,
+			},
+			ColumnIDs: []descpb.ColumnID{1, 2},
+			Version:   descpb.EmptyArraysInInvertedIndexesVersion,
+		},
+		NextIndexID: 2,
+		Privileges: descpb.NewCustomSuperuserPrivilegeDescriptor(
+			descpb.SystemAllowedPrivileges[keys.ExperimentalSQLStmtStatsTableID], security.NodeUserName()),
+		FormatVersion:  descpb.InterleavedFormatVersion,
+		NextMutationID: 1,
+	})
+
+	ExperimentalSQLTxnStatsTable = makeTable(descpb.TableDescriptor{
+		Name:                    "experimental_sql_txn_stats",
+		ID:                      keys.ExperimentalSQLTxnStatsTableID,
+		ParentID:                keys.SystemDatabaseID,
+		UnexposedParentSchemaID: keys.PublicSchemaID,
+		Version:                 1,
+		Columns: []descpb.ColumnDescriptor{
+			{Name: "fingerprint", ID: 1, Type: types.Int, Nullable: false},
+			{Name: "timestamp", ID: 2, Type: types.Timestamp, Nullable: false},
+			{Name: "stats", ID: 3, Type: types.Bytes, Nullable: false},
+		},
+		NextColumnID: 4,
+		Families: []descpb.ColumnFamilyDescriptor{
+			{
+				Name:            "primary",
+				ID:              0,
+				ColumnNames:     []string{"fingerprint", "timestamp", "stats"},
+				ColumnIDs:       []descpb.ColumnID{1, 2, 3},
+				DefaultColumnID: 0,
+			},
+		},
+		NextFamilyID: 1,
+		PrimaryIndex: descpb.IndexDescriptor{
+			Name:        tabledesc.PrimaryKeyIndexName,
+			ID:          1,
+			Unique:      true,
+			ColumnNames: []string{"fingerprint", "timestamp"},
+			ColumnDirections: []descpb.IndexDescriptor_Direction{
+				descpb.IndexDescriptor_ASC,
+				descpb.IndexDescriptor_ASC,
+			},
+			ColumnIDs: []descpb.ColumnID{1, 2},
+			Version:   descpb.EmptyArraysInInvertedIndexesVersion,
+		},
+		NextIndexID: 2,
+		Privileges: descpb.NewCustomSuperuserPrivilegeDescriptor(
+			descpb.SystemAllowedPrivileges[keys.ExperimentalSQLTxnStatsTableID], security.NodeUserName()),
 		FormatVersion:  descpb.InterleavedFormatVersion,
 		NextMutationID: 1,
 	})

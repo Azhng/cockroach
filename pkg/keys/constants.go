@@ -405,6 +405,10 @@ const (
 	MigrationsID                        = 40
 	JoinTokensTableID                   = 41
 
+	// Experimental SQL Stats table
+	ExperimentalSQLStmtStatsTableID = 42
+	ExperimentalSQLTxnStatsTableID  = 43
+
 	// CommentType is type for system.comments
 	DatabaseCommentType = 0
 	TableCommentType    = 1
