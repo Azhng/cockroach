@@ -270,7 +270,7 @@ type Server struct {
 	InternalMetrics Metrics
 }
 
-var _ tree.SQLStatsResetter = &Server{}
+var _ tree.SQLStatsOperator = &Server{}
 
 // Metrics collects timeseries data about SQL activity.
 type Metrics struct {
@@ -346,17 +346,17 @@ func (s *Server) Start(ctx context.Context, stopper *stop.Stopper) {
 }
 
 // TODO(azhng): delete, prototype code
-func (s *Server) PersistSQLStats(ctx context.Context) error {
+func (s *Server) PersistSQLStats(ctx context.Context) (uint64, error) {
 	statementStats := s.GetUnscrubbedStmtStats()
-	stmtStatsSize := 0
+	stmtStatsSize := uint64(0)
 	stmtEntryCnt := len(statementStats)
 	for _, statementStat := range statementStats {
 		fingerprint := statementStat.ID
 		bytes, err := statementStat.Marshal()
-		stmtStatsSize += len(bytes)
+		stmtStatsSize += uint64(len(bytes))
 		stmtStatsSize += 16 // size for the fingerprint and timestamp.
 		if err != nil {
-			return err
+			return 0, err
 		}
 		log.Infof(ctx, "MARKER stmt size: %v", len(bytes))
 		err = descs.Txn(ctx, s.cfg.Settings, s.cfg.LeaseManager, s.cfg.InternalExecutor, s.cfg.DB, func(ctx context.Context, txn *kv.Txn, _ *descs.Collection) error {
@@ -373,13 +373,13 @@ func (s *Server) PersistSQLStats(ctx context.Context) error {
 			return nil
 		})
 		if err != nil {
-			return err
+			return 0, err
 		}
 	}
 
 	log.Infof(ctx, "MARKER statement size: %d bytes, stmtEntryCnt: %d", stmtStatsSize, stmtEntryCnt)
 
-	txnStatsSize := 0
+	txnStatsSize := uint64(0)
 	txnEntryCnt := 0
 
 	collectedTxnKeys := make([]txnKey, 0)
@@ -414,11 +414,11 @@ func (s *Server) PersistSQLStats(ctx context.Context) error {
 		payload := collectedTransactionStats[idx]
 		bytes, err := payload.Marshal()
 		if err != nil {
-			return err
+			return 0, err
 		}
 
 		log.Infof(ctx, "MARKER txn size: %v", len(bytes))
-		txnStatsSize += len(bytes) + 16
+		txnStatsSize += uint64(len(bytes)) + uint64(16)
 
 		err = descs.Txn(ctx, s.cfg.Settings, s.cfg.LeaseManager, s.cfg.InternalExecutor, s.cfg.DB, func(ctx context.Context, txn *kv.Txn, _ *descs.Collection) error {
 			num, err := s.cfg.InternalExecutor.ExecEx(ctx, "flush-sql-txn-stats", txn,
@@ -434,22 +434,31 @@ func (s *Server) PersistSQLStats(ctx context.Context) error {
 			return nil
 		})
 		if err != nil {
-			return err
+			return 0, err
 		}
 	}
 
 	log.Infof(ctx, "MARKER txn size: %d bytes, txnEntryCnt %d", txnStatsSize, txnEntryCnt)
 	log.Infof(ctx, "MARKER total size: %d bytes, totalEntryCnt %d", txnStatsSize+stmtStatsSize, txnEntryCnt+stmtEntryCnt)
 
-	return nil
+	return txnStatsSize + stmtStatsSize, nil
+}
+
+func (s *Server) FlushSQLStats(ctx context.Context) (uint64, error) {
+	// TODO(azhng): prototype code
+	bytesWritten, err := s.PersistSQLStats(ctx)
+	if err != nil {
+		return 0, errors.Errorf("sql stats persistence failed: %v", err)
+	}
+
+	// Dump the SQL stats into the reported stats before clearing the SQL stats.
+	s.sqlStats.resetAndMaybeDumpStats(ctx, &s.reportedStats)
+	return bytesWritten, nil
 }
 
 // ResetSQLStats resets the executor's collected sql statistics.
 func (s *Server) ResetSQLStats(ctx context.Context) {
-	// TODO(azhng): delete, prototype code
-	if err := s.PersistSQLStats(ctx); err != nil {
-		log.Fatalf(ctx, "sql stats persistence failed: %v", err)
-	}
+	// TODO(azhng): we need to delete persisted stats too as well.
 
 	// Dump the SQL stats into the reported stats before clearing the SQL stats.
 	s.sqlStats.resetAndMaybeDumpStats(ctx, &s.reportedStats)
@@ -2309,7 +2318,7 @@ func (ex *connExecutor) initEvalCtx(ctx context.Context, evalCtx *extendedEvalCo
 			InternalExecutor:   &ie,
 			DB:                 ex.server.cfg.DB,
 			SQLLivenessReader:  ex.server.cfg.SQLLivenessReader,
-			SQLStatsResetter:   ex.server,
+			SQLStatsOperator:   ex.server,
 		},
 		SessionMutator:       ex.dataMutator,
 		VirtualSchemas:       ex.server.cfg.VirtualSchemas,

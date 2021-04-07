@@ -5201,11 +5201,11 @@ table's zone configuration this will return NULL.`,
 			Types:      tree.ArgTypes{},
 			ReturnType: tree.FixedReturnType(types.Bool),
 			Fn: func(evalCtx *tree.EvalContext, args tree.Datums) (tree.Datum, error) {
-				if evalCtx.SQLStatsResetter == nil {
-					return nil, errors.AssertionFailedf("sql stats resetter not set")
+				if evalCtx.SQLStatsOperator == nil {
+					return nil, errors.AssertionFailedf("sql stats operator not set")
 				}
 				ctx := evalCtx.Ctx()
-				if err := evalCtx.SQLStatsResetter.ResetClusterSQLStats(ctx); err != nil {
+				if err := evalCtx.SQLStatsOperator.ResetClusterSQLStats(ctx); err != nil {
 					return nil, err
 				}
 				return tree.MakeDBool(true), nil
@@ -5214,6 +5214,30 @@ table's zone configuration this will return NULL.`,
 			Volatility: tree.VolatilityVolatile,
 		},
 	),
+
+	"crdb_internal.flush_sql_stats": makeBuiltin(
+		tree.FunctionProperties{
+			Category: categorySystemInfo,
+		},
+		tree.Overload{
+			Types:      tree.ArgTypes{},
+			ReturnType: tree.FixedReturnType(types.Int),
+			Fn: func(evalCtx *tree.EvalContext, args tree.Datums) (tree.Datum, error) {
+				if evalCtx.SQLStatsOperator == nil {
+					return nil, errors.AssertionFailedf("sql stats operator not set")
+				}
+				ctx := evalCtx.Ctx()
+				bytesWritten, err := evalCtx.SQLStatsOperator.FlushSQLStats(ctx)
+				if err != nil {
+					return nil, err
+				}
+				return tree.NewDInt(tree.DInt(bytesWritten)), nil
+			},
+			Info:       `This function is used to flush the collected SQL statistics to disk.`,
+			Volatility: tree.VolatilityVolatile,
+		},
+	),
+
 	// Deletes the underlying spans backing a table, only
 	// if the user provides explicit acknowledgement of the
 	// form "I acknowledge this will irrevocably delete all revisions

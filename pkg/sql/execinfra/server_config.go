@@ -153,9 +153,9 @@ type ServerConfig struct {
 	// user-defined types.
 	HydratedTables *hydratedtables.Cache
 
-	// SQLStatsResetter is an interface used to reset SQL stats without the need to
+	// SQLStatsOperator is an interface used to reset SQL stats without the need to
 	// introduce dependency on the sql package.
-	SQLStatsResetter tree.SQLStatsResetter
+	SQLStatsOperator tree.SQLStatsOperator
 }
 
 // RuntimeStats is an interface through which the rowexec layer can get

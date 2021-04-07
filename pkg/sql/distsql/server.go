@@ -298,7 +298,7 @@ func (ds *ServerImpl) setupFlow(
 			InternalExecutor:   ie,
 			Txn:                leafTxn,
 			SQLLivenessReader:  ds.ServerConfig.SQLLivenessReader,
-			SQLStatsResetter:   ds.ServerConfig.SQLStatsResetter,
+			SQLStatsOperator:   ds.ServerConfig.SQLStatsOperator,
 		}
 		evalCtx.SetStmtTimestamp(timeutil.Unix(0 /* sec */, req.EvalContext.StmtTimestampNanos))
 		evalCtx.SetTxnTimestamp(timeutil.Unix(0 /* sec */, req.EvalContext.TxnTimestampNanos))

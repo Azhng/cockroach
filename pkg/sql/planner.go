@@ -415,7 +415,7 @@ func internalExtendedEvalCtx(
 ) extendedEvalContext {
 	evalContextTestingKnobs := execCfg.EvalContextTestingKnobs
 
-	var sqlStatsResetter tree.SQLStatsResetter
+	var sqlStatsResetter tree.SQLStatsOperator
 	if execCfg.InternalExecutor != nil {
 		sqlStatsResetter = execCfg.InternalExecutor.s
 	}
@@ -434,7 +434,7 @@ func internalExtendedEvalCtx(
 			StmtTimestamp:    stmtTimestamp,
 			TxnTimestamp:     txnTimestamp,
 			InternalExecutor: execCfg.InternalExecutor,
-			SQLStatsResetter: sqlStatsResetter,
+			SQLStatsOperator: sqlStatsResetter,
 		},
 		SessionMutator:    dataMutator,
 		VirtualSchemas:    execCfg.VirtualSchemas,
