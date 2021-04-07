@@ -5227,7 +5227,7 @@ table's zone configuration this will return NULL.`,
 					return nil, errors.AssertionFailedf("sql stats operator not set")
 				}
 				ctx := evalCtx.Ctx()
-				bytesWritten, err := evalCtx.SQLStatsOperator.FlushSQLStats(ctx)
+				bytesWritten, err := evalCtx.SQLStatsOperator.FlushClusterSQLStats(ctx)
 				if err != nil {
 					return nil, err
 				}

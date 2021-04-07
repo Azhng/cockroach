@@ -25,6 +25,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/sql"
 	"github.com/cockroachdb/cockroach/pkg/sql/contention"
 	"github.com/cockroachdb/cockroach/pkg/util/log"
+	"github.com/pkg/errors"
 )
 
 // tenantStatusServer is an implementation of a SQLStatusServer that is
@@ -140,4 +141,10 @@ func (t *tenantStatusServer) Statements(
 	}
 
 	return resp, nil
+}
+
+func (t *tenantStatusServer) FlushClusterSQLStats(
+	_ context.Context, _ *serverpb.FlushClusterSQLStatsRequest,
+) (*serverpb.FlushClusterSQLStatsResponse, error) {
+	return nil, errors.Errorf("not yet implemeneted")
 }

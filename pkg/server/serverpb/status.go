@@ -26,6 +26,7 @@ type SQLStatusServer interface {
 	ListContentionEvents(context.Context, *ListContentionEventsRequest) (*ListContentionEventsResponse, error)
 	ListLocalContentionEvents(context.Context, *ListContentionEventsRequest) (*ListContentionEventsResponse, error)
 	ResetSQLStats(context.Context, *ResetSQLStatsRequest) (*ResetSQLStatsResponse, error)
+	FlushClusterSQLStats(context.Context, *FlushClusterSQLStatsRequest) (*FlushClusterSQLStatsResponse, error)
 	Statements(context.Context, *StatementsRequest) (*StatementsResponse, error)
 }
 

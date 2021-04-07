@@ -3297,7 +3297,7 @@ func (*EvalContextTestingKnobs) ModuleTestingKnobs() {}
 // to avoid circular dependency.
 type SQLStatsOperator interface {
 	ResetClusterSQLStats(ctx context.Context) error
-	FlushSQLStats(ctx context.Context) (uint64, error)
+	FlushClusterSQLStats(ctx context.Context) (int64, error)
 }
 
 // EvalContext defines the context in which to evaluate an expression, allowing

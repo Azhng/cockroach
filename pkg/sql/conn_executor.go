@@ -346,40 +346,40 @@ func (s *Server) Start(ctx context.Context, stopper *stop.Stopper) {
 }
 
 // TODO(azhng): delete, prototype code
-func (s *Server) PersistSQLStats(ctx context.Context) (uint64, error) {
+func (s *Server) PersistSQLStats(ctx context.Context) (int64, error) {
 	statementStats := s.GetUnscrubbedStmtStats()
-	stmtStatsSize := uint64(0)
+	stmtStatsSize := int64(0)
 	stmtEntryCnt := len(statementStats)
-	for _, statementStat := range statementStats {
-		fingerprint := statementStat.ID
-		bytes, err := statementStat.Marshal()
-		stmtStatsSize += uint64(len(bytes))
-		stmtStatsSize += 16 // size for the fingerprint and timestamp.
-		if err != nil {
-			return 0, err
-		}
-		log.Infof(ctx, "MARKER stmt size: %v", len(bytes))
-		err = descs.Txn(ctx, s.cfg.Settings, s.cfg.LeaseManager, s.cfg.InternalExecutor, s.cfg.DB, func(ctx context.Context, txn *kv.Txn, _ *descs.Collection) error {
-			num, err := s.cfg.InternalExecutor.ExecEx(ctx, "flush-sql-stmt-stats", txn, // TODO: figure this out
-				sessiondata.NodeUserSessionDataOverride,
-				"INSERT INTO system.experimental_sql_stmt_stats (fingerprint, timestamp, stats) VALUES ($1, current_timestamp(), $2)",
-				fingerprint, bytes)
+	err := s.cfg.DB.Txn(ctx, func(ctx context.Context, txn *kv.Txn) error {
+		for _, statementStat := range statementStats {
+			fingerprint := statementStat.ID
+			bytes, err := statementStat.Marshal()
+			stmtStatsSize += int64(len(bytes))
+			stmtStatsSize += 20 // size for the fingerprint and timestamp.
 			if err != nil {
 				return err
+			}
+			log.Infof(ctx, "MARKER stmt size: %v", len(bytes))
+			num, err := s.cfg.InternalExecutor.ExecEx(ctx, "flush-sql-stmt-stats", txn,
+				sessiondata.NodeUserSessionDataOverride,
+				"INSERT INTO system.experimental_sql_stmt_stats (fingerprint, timestamp, stats) VALUES ($1, clock_timestamp(), $2)",
+				fingerprint, bytes)
+			if err != nil {
+				return errors.Errorf("insertion failed, fingerprint: %v, error: %v", fingerprint, err)
 			}
 			if num != 1 {
 				return errors.Errorf("expected inserting 1 row, but found: %d", num)
 			}
-			return nil
-		})
-		if err != nil {
-			return 0, err
 		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
 	}
 
 	log.Infof(ctx, "MARKER statement size: %d bytes, stmtEntryCnt: %d", stmtStatsSize, stmtEntryCnt)
 
-	txnStatsSize := uint64(0)
+	txnStatsSize := int64(0)
 	txnEntryCnt := 0
 
 	collectedTxnKeys := make([]txnKey, 0)
@@ -410,20 +410,20 @@ func (s *Server) PersistSQLStats(ctx context.Context) (uint64, error) {
 	}
 	s.sqlStats.Unlock()
 
-	for idx, transactionKey := range collectedTxnKeys {
-		payload := collectedTransactionStats[idx]
-		bytes, err := payload.Marshal()
-		if err != nil {
-			return 0, err
-		}
+	err = s.cfg.DB.Txn(ctx, func(ctx context.Context, txn *kv.Txn) error {
+		for idx, transactionKey := range collectedTxnKeys {
+			payload := collectedTransactionStats[idx]
+			bytes, err := payload.Marshal()
+			if err != nil {
+				return err
+			}
 
-		log.Infof(ctx, "MARKER txn size: %v", len(bytes))
-		txnStatsSize += uint64(len(bytes)) + uint64(16)
+			log.Infof(ctx, "MARKER txn size: %v", len(bytes))
+			txnStatsSize += int64(len(bytes)) + int64(20)
 
-		err = descs.Txn(ctx, s.cfg.Settings, s.cfg.LeaseManager, s.cfg.InternalExecutor, s.cfg.DB, func(ctx context.Context, txn *kv.Txn, _ *descs.Collection) error {
 			num, err := s.cfg.InternalExecutor.ExecEx(ctx, "flush-sql-txn-stats", txn,
 				sessiondata.NodeUserSessionDataOverride,
-				"INSERT INTO system.experimental_sql_txn_stats (fingerprint, timestamp, stats) VALUES ($1, current_timestamp(), $2)",
+				"INSERT INTO system.experimental_sql_txn_stats (fingerprint, timestamp, stats) VALUES ($1, clock_timestamp(), $2)",
 				transactionKey, bytes)
 			if err != nil {
 				return err
@@ -431,11 +431,12 @@ func (s *Server) PersistSQLStats(ctx context.Context) (uint64, error) {
 			if num != 1 {
 				return errors.Errorf("expected inserting 1 row, but found: %d", num)
 			}
-			return nil
-		})
-		if err != nil {
-			return 0, err
 		}
+		return nil
+	})
+
+	if err != nil {
+		return 0, err
 	}
 
 	log.Infof(ctx, "MARKER txn size: %d bytes, txnEntryCnt %d", txnStatsSize, txnEntryCnt)
@@ -444,7 +445,7 @@ func (s *Server) PersistSQLStats(ctx context.Context) (uint64, error) {
 	return txnStatsSize + stmtStatsSize, nil
 }
 
-func (s *Server) FlushSQLStats(ctx context.Context) (uint64, error) {
+func (s *Server) FlushSQLStats(ctx context.Context) (int64, error) {
 	// TODO(azhng): prototype code
 	bytesWritten, err := s.PersistSQLStats(ctx)
 	if err != nil {
@@ -876,6 +877,15 @@ func (s *Server) PeriodicallyClearSQLStats(
 			}
 		}
 	})
+}
+
+func (s *Server) FlushClusterSQLStats(ctx context.Context) (int64, error) {
+	req := &serverpb.FlushClusterSQLStatsRequest{}
+	resp, err := s.cfg.SQLStatusServer.FlushClusterSQLStats(ctx, req)
+	if err != nil {
+		return 0, err
+	}
+	return resp.BytesWritten, nil
 }
 
 // ResetClusterSQLStats resets the collected cluster-wide SQL statistics by calling into the statusServer.

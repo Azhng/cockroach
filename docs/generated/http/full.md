@@ -2874,6 +2874,50 @@ Response object returned by ResetSQLStats.
 
 
 
+## FlushClusterSQLStats
+
+`POST /_status/flushsqlstats`
+
+
+
+Support status: [reserved](#support-status)
+
+#### Request Parameters
+
+
+
+
+Request object for issuing a SQL stats reset request.
+
+
+| Field | Type | Label | Description | Support status |
+| ----- | ---- | ----- | ----------- | -------------- |
+| node_id | [string](#cockroach.server.serverpb.FlushClusterSQLStatsRequest-string) |  |  | [reserved](#support-status) |
+
+
+
+
+
+
+
+#### Response Parameters
+
+
+
+
+Response object returned by ResetSQLStats.
+
+
+| Field | Type | Label | Description | Support status |
+| ----- | ---- | ----- | ----------- | -------------- |
+| bytes_written | [int64](#cockroach.server.serverpb.FlushClusterSQLStatsResponse-int64) |  |  | [reserved](#support-status) |
+
+
+
+
+
+
+
 ## Users
 
 `GET /_admin/v1/users`

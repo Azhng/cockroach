@@ -1019,6 +1019,16 @@ message ResetSQLStatsRequest {
 message ResetSQLStatsResponse {
 }
 
+// Request object for issuing a SQL stats reset request.
+message FlushClusterSQLStatsRequest {
+  string node_id = 1 [(gogoproto.customname) = "NodeID"];
+}
+
+// Response object returned by ResetSQLStats.
+message FlushClusterSQLStatsResponse {
+  int64 bytes_written = 1;
+}
+
 service Status {
   // Certificates retrieves a copy of the TLS certificates.
   rpc Certificates(CertificatesRequest) returns (CertificatesResponse) {
@@ -1308,6 +1318,13 @@ service Status {
   rpc ResetSQLStats(ResetSQLStatsRequest) returns (ResetSQLStatsResponse) {
     option (google.api.http) = {
       post: "/_status/resetsqlstats"
+      body: "*"
+    };
+  }
+
+  rpc FlushClusterSQLStats(FlushClusterSQLStatsRequest) returns (FlushClusterSQLStatsResponse) {
+    option (google.api.http) = {
+      post: "/_status/flushsqlstats"
       body: "*"
     };
   }

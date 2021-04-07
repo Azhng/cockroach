@@ -21,6 +21,71 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+func (s *statusServer) FlushClusterSQLStats(
+	ctx context.Context, req *serverpb.FlushClusterSQLStatsRequest,
+) (*serverpb.FlushClusterSQLStatsResponse, error) {
+	ctx = propagateGatewayMetadata(ctx)
+	ctx = s.AnnotateCtx(ctx)
+
+	if _, err := s.privilegeChecker.requireAdminUser(ctx); err != nil {
+		return nil, err
+	}
+
+	response := &serverpb.FlushClusterSQLStatsResponse{}
+	localReq := &serverpb.FlushClusterSQLStatsRequest{
+		NodeID: "local",
+	}
+
+	if len(req.NodeID) > 0 {
+		requestedNodeID, local, err := s.parseNodeID(req.NodeID)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, err.Error())
+		}
+		if local {
+			bytesWritten, err := s.admin.server.sqlServer.pgServer.SQLServer.FlushSQLStats(ctx)
+			if err != nil {
+				return nil, err
+			}
+			response.BytesWritten += bytesWritten
+			return response, nil
+		}
+		status, err := s.dialNode(ctx, requestedNodeID)
+		if err != nil {
+			return nil, err
+		}
+		return status.FlushClusterSQLStats(ctx, localReq)
+	}
+
+	dialFn := func(ctx context.Context, nodeID roachpb.NodeID) (interface{}, error) {
+		client, err := s.dialNode(ctx, nodeID)
+		return client, err
+	}
+
+	flushSQLStats := func(ctx context.Context, client interface{}, _ roachpb.NodeID) (interface{}, error) {
+		status := client.(serverpb.StatusClient)
+		return status.FlushClusterSQLStats(ctx, localReq)
+	}
+
+	var fanoutError error
+
+	if err := s.iterateNodes(ctx, fmt.Sprintf("flush SQL statistics for node %s", req.NodeID),
+		dialFn,
+		flushSQLStats,
+		func(nodeID roachpb.NodeID, resp interface{}) {
+			response.BytesWritten += resp.(*serverpb.FlushClusterSQLStatsResponse).BytesWritten
+		},
+		func(nodeID roachpb.NodeID, nodeFnError error) {
+			if nodeFnError != nil {
+				fanoutError = errors.CombineErrors(fanoutError, nodeFnError)
+			}
+		},
+	); err != nil {
+		return nil, err
+	}
+
+	return response, fanoutError
+}
+
 func (s *statusServer) ResetSQLStats(
 	ctx context.Context, req *serverpb.ResetSQLStatsRequest,
 ) (*serverpb.ResetSQLStatsResponse, error) {
