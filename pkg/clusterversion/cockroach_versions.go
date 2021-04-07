@@ -279,6 +279,9 @@ const (
 	// join tokens.
 	JoinTokensTable
 
+	ExperimentalSQLStmtStatsTable
+	ExperimentalSQLTxnStatsTable
+
 	// Step (1): Add new versions here.
 )
 
@@ -483,6 +486,14 @@ var versionsSingleton = keyedVersions([]keyedVersion{
 	{
 		Key:     JoinTokensTable,
 		Version: roachpb.Version{Major: 20, Minor: 2, Internal: 50},
+	},
+	{
+		Key:     ExperimentalSQLStmtStatsTable,
+		Version: roachpb.Version{Major: 21, Minor: 2, Internal: 52},
+	},
+	{
+		Key:     ExperimentalSQLTxnStatsTable,
+		Version: roachpb.Version{Major: 21, Minor: 2, Internal: 54},
 	},
 	// Step (2): Add new versions here.
 })

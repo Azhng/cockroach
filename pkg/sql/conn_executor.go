@@ -345,8 +345,112 @@ func (s *Server) Start(ctx context.Context, stopper *stop.Stopper) {
 	s.PeriodicallyClearSQLStats(ctx, stopper, SQLStatReset, &s.sqlStats, s.ResetSQLStats)
 }
 
+// TODO(azhng): delete, prototype code
+func (s *Server) PersistSQLStats(ctx context.Context) error {
+	statementStats := s.GetUnscrubbedStmtStats()
+	stmtStatsSize := 0
+	stmtEntryCnt := len(statementStats)
+	for _, statementStat := range statementStats {
+		fingerprint := statementStat.ID
+		bytes, err := statementStat.Marshal()
+		stmtStatsSize += len(bytes)
+		stmtStatsSize += 16 // size for the fingerprint and timestamp.
+		if err != nil {
+			return err
+		}
+		log.Infof(ctx, "MARKER stmt size: %v", len(bytes))
+		err = descs.Txn(ctx, s.cfg.Settings, s.cfg.LeaseManager, s.cfg.InternalExecutor, s.cfg.DB, func(ctx context.Context, txn *kv.Txn, _ *descs.Collection) error {
+			num, err := s.cfg.InternalExecutor.ExecEx(ctx, "flush-sql-stmt-stats", txn, // TODO: figure this out
+				sessiondata.NodeUserSessionDataOverride,
+				"INSERT INTO system.experimental_sql_stmt_stats (fingerprint, timestamp, stats) VALUES ($1, current_timestamp(), $2)",
+				fingerprint, bytes)
+			if err != nil {
+				return err
+			}
+			if num != 1 {
+				return errors.Errorf("expected inserting 1 row, but found: %d", num)
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+	}
+
+	log.Infof(ctx, "MARKER statement size: %d bytes, stmtEntryCnt: %d", stmtStatsSize, stmtEntryCnt)
+
+	txnStatsSize := 0
+	txnEntryCnt := 0
+
+	collectedTxnKeys := make([]txnKey, 0)
+	collectedTransactionStats := make([]roachpb.CollectedTransactionStatistics, 0)
+	s.sqlStats.Lock()
+
+	{
+		for appName, app := range s.sqlStats.apps {
+			app.Lock()
+			log.Info(ctx, "MARKER app lock acquired")
+			txnEntryCnt += len(app.txns)
+			{
+				for transactionKey, transactionStat := range app.txns {
+					transactionStat.mu.Lock()
+					data := transactionStat.mu.data
+					transactionStat.mu.Unlock()
+					payload := roachpb.CollectedTransactionStatistics{
+						StatementIDs: transactionStat.statementIDs,
+						App:          appName,
+						Stats:        data,
+					}
+					collectedTransactionStats = append(collectedTransactionStats, payload)
+					collectedTxnKeys = append(collectedTxnKeys, transactionKey)
+				}
+			}
+			app.Unlock()
+		}
+	}
+	s.sqlStats.Unlock()
+
+	for idx, transactionKey := range collectedTxnKeys {
+		payload := collectedTransactionStats[idx]
+		bytes, err := payload.Marshal()
+		if err != nil {
+			return err
+		}
+
+		log.Infof(ctx, "MARKER txn size: %v", len(bytes))
+		txnStatsSize += len(bytes) + 16
+
+		err = descs.Txn(ctx, s.cfg.Settings, s.cfg.LeaseManager, s.cfg.InternalExecutor, s.cfg.DB, func(ctx context.Context, txn *kv.Txn, _ *descs.Collection) error {
+			num, err := s.cfg.InternalExecutor.ExecEx(ctx, "flush-sql-txn-stats", txn,
+				sessiondata.NodeUserSessionDataOverride,
+				"INSERT INTO system.experimental_sql_txn_stats (fingerprint, timestamp, stats) VALUES ($1, current_timestamp(), $2)",
+				transactionKey, bytes)
+			if err != nil {
+				return err
+			}
+			if num != 1 {
+				return errors.Errorf("expected inserting 1 row, but found: %d", num)
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+	}
+
+	log.Infof(ctx, "MARKER txn size: %d bytes, txnEntryCnt %d", txnStatsSize, txnEntryCnt)
+	log.Infof(ctx, "MARKER total size: %d bytes, totalEntryCnt %d", txnStatsSize+stmtStatsSize, txnEntryCnt+stmtEntryCnt)
+
+	return nil
+}
+
 // ResetSQLStats resets the executor's collected sql statistics.
 func (s *Server) ResetSQLStats(ctx context.Context) {
+	// TODO(azhng): delete, prototype code
+	if err := s.PersistSQLStats(ctx); err != nil {
+		log.Fatalf(ctx, "sql stats persistence failed: %v", err)
+	}
+
 	// Dump the SQL stats into the reported stats before clearing the SQL stats.
 	s.sqlStats.resetAndMaybeDumpStats(ctx, &s.reportedStats)
 }
