@@ -49,7 +49,7 @@ func (s *statusServer) Statements(
 			return nil, status.Errorf(codes.InvalidArgument, err.Error())
 		}
 		if local {
-			return statementsLocal(s.gossip.NodeID, s.admin.server.sqlServer)
+			return statementsLocalMemory(s.gossip.NodeID, s.admin.server.sqlServer)
 		}
 		status, err := s.dialNode(ctx, requestedNodeID)
 		if err != nil {
@@ -85,10 +85,42 @@ func (s *statusServer) Statements(
 		return nil, err
 	}
 
+	statementStats, err := s.admin.server.sqlServer.pgServer.SQLServer.GetPersistedStmtStats(ctx)
+	if err != nil {
+		return nil, err
+	}
+	extendedStatementStats := make([]serverpb.StatementsResponse_CollectedStatementStatistics, len(statementStats))
+	for idx, stmtStat := range statementStats {
+		extendedStatementStats[idx] = serverpb.StatementsResponse_CollectedStatementStatistics{
+			Key: serverpb.StatementsResponse_ExtendedStatementStatisticsKey{
+				KeyData: stmtStat.Key,
+				NodeID:  s.gossip.NodeID.Get(),
+			},
+			ID:    stmtStat.ID,
+			Stats: stmtStat.Stats,
+		}
+	}
+	response.Statements = append(response.Statements, extendedStatementStats...)
+
+	txnStats, err := s.admin.server.sqlServer.pgServer.SQLServer.GetPersistedTxnStats(ctx)
+	if err != nil {
+		return nil, err
+	}
+	extendedTxnStats := make([]serverpb.StatementsResponse_ExtendedCollectedTransactionStatistics, len(txnStats))
+	for idx, txnStat := range txnStats {
+		extendedTxnStats[idx] = serverpb.StatementsResponse_ExtendedCollectedTransactionStatistics{
+			StatsData: txnStat,
+			NodeID:    s.gossip.NodeID.Get(),
+		}
+	}
+
+	response.Transactions = append(response.Transactions, extendedTxnStats...)
+
 	return response, nil
 }
 
-func statementsLocal(
+// statementLocalMemory returns the statement statistics stored locally in memory.
+func statementsLocalMemory(
 	nodeID *base.NodeIDContainer, sqlServer *SQLServer,
 ) (*serverpb.StatementsResponse, error) {
 	stmtStats := sqlServer.pgServer.SQLServer.GetUnscrubbedStmtStats()

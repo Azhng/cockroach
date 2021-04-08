@@ -134,7 +134,7 @@ func (t *tenantStatusServer) Statements(
 	}
 	// Use a dummy value here until pod-to-pod communication is implemented since tenant status server
 	// does not have concept of node.
-	resp, err := statementsLocal(&base.NodeIDContainer{}, t.sqlServer)
+	resp, err := statementsLocalMemory(&base.NodeIDContainer{}, t.sqlServer)
 
 	if err != nil {
 		return nil, err

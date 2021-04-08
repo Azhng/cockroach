@@ -59,6 +59,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/util/log/severity"
 	"github.com/cockroachdb/cockroach/pkg/util/metric"
 	"github.com/cockroachdb/cockroach/pkg/util/mon"
+	"github.com/cockroachdb/cockroach/pkg/util/protoutil"
 	"github.com/cockroachdb/cockroach/pkg/util/stop"
 	"github.com/cockroachdb/cockroach/pkg/util/syncutil"
 	"github.com/cockroachdb/cockroach/pkg/util/timeutil"
@@ -334,15 +335,20 @@ func makeMetrics(internal bool) Metrics {
 
 // Start starts the Server's background processing.
 func (s *Server) Start(ctx context.Context, stopper *stop.Stopper) {
+	// TODO(@azhng): this is not ideal, we want to properly handle errors
+	sqlStatsFlushAdapter := func(ctx context.Context) {
+		_, _ = s.FlushSQLStats(ctx)
+	}
+
 	// Start a loop to clear SQL stats at the max reset interval. This is
 	// to ensure that we always have some worker clearing SQL stats to avoid
 	// continually allocating space for the SQL stats. Additionally, spawn
 	// a loop to clear the reported stats at the same large interval just
 	// in case the telemetry worker fails.
-	s.PeriodicallyClearSQLStats(ctx, stopper, MaxSQLStatReset, &s.sqlStats, s.ResetSQLStats)
+	s.PeriodicallyClearSQLStats(ctx, stopper, MaxSQLStatReset, &s.sqlStats, sqlStatsFlushAdapter)
 	s.PeriodicallyClearSQLStats(ctx, stopper, MaxSQLStatReset, &s.reportedStats, s.ResetReportedStats)
 	// Start a second loop to clear SQL stats at the requested interval.
-	s.PeriodicallyClearSQLStats(ctx, stopper, SQLStatReset, &s.sqlStats, s.ResetSQLStats)
+	s.PeriodicallyClearSQLStats(ctx, stopper, SQLStatReset, &s.sqlStats, sqlStatsFlushAdapter)
 }
 
 // TODO(azhng): delete, prototype code
@@ -452,6 +458,7 @@ func (s *Server) FlushSQLStats(ctx context.Context) (int64, error) {
 		return 0, errors.Errorf("sql stats persistence failed: %v", err)
 	}
 
+	// TODO(azhng): not sure if this is necessary
 	// Dump the SQL stats into the reported stats before clearing the SQL stats.
 	s.sqlStats.resetAndMaybeDumpStats(ctx, &s.reportedStats)
 	return bytesWritten, nil
@@ -460,6 +467,23 @@ func (s *Server) FlushSQLStats(ctx context.Context) (int64, error) {
 // ResetSQLStats resets the executor's collected sql statistics.
 func (s *Server) ResetSQLStats(ctx context.Context) {
 	// TODO(azhng): we need to delete persisted stats too as well.
+	err := s.cfg.DB.Txn(ctx, func(ctx context.Context, txn *kv.Txn) error {
+		_, err := s.cfg.InternalExecutor.ExecEx(ctx, "delete-sql-stmt-stats", txn, sessiondata.NodeUserSessionDataOverride,
+			"TRUNCATE system.experimental_sql_stmt_stats")
+		if err != nil {
+			return errors.Errorf("failed to delete stmt stats: %v", err)
+		}
+		_, err = s.cfg.InternalExecutor.ExecEx(ctx, "delete-sql-txn-stats", txn, sessiondata.NodeUserSessionDataOverride,
+			"TRUNCATE system.experimental_sql_txn_stats")
+		if err != nil {
+			return errors.Errorf("failed to delete txn stats: %v", err)
+		}
+		return nil
+	})
+
+	if err != nil {
+		log.Warningf(ctx, "unable to delete sql stats: %v", err)
+	}
 
 	// Dump the SQL stats into the reported stats before clearing the SQL stats.
 	s.sqlStats.resetAndMaybeDumpStats(ctx, &s.reportedStats)
@@ -507,6 +531,90 @@ func (s *Server) GetStmtStatsLastReset() time.Time {
 // GetExecutorConfig returns this server's executor config.
 func (s *Server) GetExecutorConfig() *ExecutorConfig {
 	return s.cfg
+}
+
+// TODO(@azhng): seriously we need generics here v
+// GetPersistedTxnStats returns the transaction statistics stored in system table.
+func (s *Server) GetPersistedTxnStats(
+	ctx context.Context,
+) ([]roachpb.CollectedTransactionStatistics, error) {
+	result := make([]roachpb.CollectedTransactionStatistics, 0)
+	err := s.cfg.DB.Txn(ctx, func(ctx context.Context, txn *kv.Txn) error {
+		rows, err := s.cfg.InternalExecutor.QueryIteratorEx(ctx, "get-persisted-txn-stats", txn, sessiondata.NodeUserSessionDataOverride,
+			//	"SELECT stats FROM system.experimental_sql_txn_stats AS OF SYSTEM TIME follower_read_timestamp()")
+			"SELECT stats FROM system.experimental_sql_txn_stats")
+		if err != nil {
+			return err
+		}
+
+		var ok bool
+		for ok, err = rows.Next(ctx); ok; ok, err = rows.Next(ctx) {
+			if err != nil {
+				return err
+			}
+			row := rows.Cur()
+			stats := roachpb.CollectedTransactionStatistics{}
+			buf := []byte(tree.MustBeDBytes(row[0]))
+			if err := protoutil.Unmarshal(buf, &stats); err != nil {
+				return err
+			}
+			result = append(result, stats)
+		}
+
+		err = rows.Close()
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, errors.Errorf("unable to fetch persisted txn stats: %v", err)
+	}
+
+	return result, nil
+}
+
+// GetPersistedStmtStats returns the statement statistics stored in system table.
+func (s *Server) GetPersistedStmtStats(
+	ctx context.Context,
+) ([]roachpb.CollectedStatementStatistics, error) {
+	result := make([]roachpb.CollectedStatementStatistics, 0)
+	err := s.cfg.DB.Txn(ctx, func(ctx context.Context, txn *kv.Txn) error {
+		rows, err := s.cfg.InternalExecutor.QueryIteratorEx(ctx, "get-persisted-stmt-stats", txn, sessiondata.NodeUserSessionDataOverride,
+			// TODO(azhng): odd issue with AOST
+			// 	"SELECT stats FROM system.experimental_sql_stmt_stats AS OF SYSTEM TIME follower_read_timestamp()")
+			"SELECT stats FROM system.experimental_sql_stmt_stats")
+		if err != nil {
+			return err
+		}
+
+		var ok bool
+		for ok, err = rows.Next(ctx); ok; ok, err = rows.Next(ctx) {
+			if err != nil {
+				return err
+			}
+			row := rows.Cur()
+			stats := roachpb.CollectedStatementStatistics{}
+			buf := []byte(tree.MustBeDBytes(row[0]))
+			if err := protoutil.Unmarshal(buf, &stats); err != nil {
+				return err
+			}
+			result = append(result, stats)
+		}
+
+		err = rows.Close()
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, errors.Errorf("unable to fetch persisted stmt stats: %v", err)
+	}
+
+	return result, nil
 }
 
 // SetupConn creates a connExecutor for the client connection.
