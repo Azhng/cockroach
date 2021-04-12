@@ -351,43 +351,207 @@ func (s *Server) Start(ctx context.Context, stopper *stop.Stopper) {
 	s.PeriodicallyClearSQLStats(ctx, stopper, SQLStatReset, &s.sqlStats, sqlStatsFlushAdapter)
 }
 
-// TODO(azhng): delete, prototype code
-func (s *Server) PersistSQLStats(ctx context.Context) (int64, error) {
-	statementStats := s.GetUnscrubbedStmtStats()
-	stmtStatsSize := int64(0)
-	stmtEntryCnt := len(statementStats)
-	err := s.cfg.DB.Txn(ctx, func(ctx context.Context, txn *kv.Txn) error {
-		for _, statementStat := range statementStats {
-			fingerprint := statementStat.ID
-			bytes, err := statementStat.Marshal()
-			stmtStatsSize += int64(len(bytes))
-			stmtStatsSize += 20 // size for the fingerprint and timestamp.
-			if err != nil {
-				return err
-			}
-			log.Infof(ctx, "MARKER stmt size: %v", len(bytes))
-			num, err := s.cfg.InternalExecutor.ExecEx(ctx, "flush-sql-stmt-stats", txn,
-				sessiondata.NodeUserSessionDataOverride,
-				"INSERT INTO system.experimental_sql_stmt_stats (fingerprint, timestamp, stats) VALUES ($1, clock_timestamp(), $2)",
-				fingerprint, bytes)
-			if err != nil {
-				return errors.Errorf("insertion failed, fingerprint: %v, error: %v", fingerprint, err)
-			}
-			if num != 1 {
-				return errors.Errorf("expected inserting 1 row, but found: %d", num)
-			}
+func (s *Server) persistSQLStmtStats(
+	ctx context.Context, stmtStat *roachpb.CollectedStatementStatistics, txn *kv.Txn,
+) (int64, error) {
+	fields := []string{
+		"fingerprint",
+		"timestamp",
+		"app_name",
+		"sql_type",
+		"query",
+		"distsql",
+		"failed",
+		"opt",
+		"implicit_txn",
+		"vec",
+		"full_scan",
+		"count",
+		"first_attempt_count",
+		"max_retries",
+		"num_rows",
+		"num_rows_sd",
+		"parse_lat",
+		"parse_lat_sd",
+		"plan_lat",
+		"plan_lat_sd",
+		"run_lat",
+		"run_lat_sd",
+		"service_lat",
+		"service_lat_sd",
+		"overhead_lat",
+		"overhead_lat_sd",
+		"bytes_read",
+		"bytes_read_sd",
+		"rows_read",
+		"rows_read_sd",
+		"exec_count",
+		"exec_network_bytes",
+		"exec_network_bytes_sd",
+		"exec_max_mem_usage",
+		"exec_max_mem_usage_sd",
+		"exec_contention_time",
+		"exec_contention_time_sd",
+		"exec_network_messages",
+		"exec_network_messages_sd",
+		"exec_max_disk_usage",
+		"exec_max_disk_usage_sd",
+		"stats",
+	}
+
+	placeholders := make([]string, len(fields))
+	counter := 1
+	for idx := range fields {
+		if idx == 1 {
+			placeholders[idx] = "clock_timestamp()"
+		} else {
+			placeholders[idx] = fmt.Sprintf("$%d", counter)
+			counter++
 		}
-		return nil
-	})
+	}
+
+	stmt := fmt.Sprintf("INSERT INTO system.experimental_sql_stmt_stats (%s) VALUES (%s)",
+		strings.Join(fields, ","), strings.Join(placeholders, ","))
+
+	bytes, err := stmtStat.Marshal()
 	if err != nil {
 		return 0, err
 	}
 
-	log.Infof(ctx, "MARKER statement size: %d bytes, stmtEntryCnt: %d", stmtStatsSize, stmtEntryCnt)
+	num, err := s.cfg.InternalExecutor.ExecEx(ctx, "flush-sql-stmt-stats", txn,
+		sessiondata.NodeUserSessionDataOverride,
+		stmt,
+		stmtStat.ID, stmtStat.Key.App, stmtStat.Stats.SQLType, stmtStat.Key.Query, stmtStat.Key.DistSQL, // 5
+		stmtStat.Key.Failed, stmtStat.Key.Opt, stmtStat.Key.ImplicitTxn, stmtStat.Key.Vec, stmtStat.Key.FullScan, // 5
+		stmtStat.Stats.Count, stmtStat.Stats.FirstAttemptCount, stmtStat.Stats.MaxRetries, stmtStat.Stats.NumRows.Mean, // 4
+		stmtStat.Stats.NumRows.SquaredDiffs, stmtStat.Stats.ParseLat.Mean, stmtStat.Stats.ParseLat.SquaredDiffs, // 3
+		stmtStat.Stats.PlanLat.Mean, stmtStat.Stats.PlanLat.SquaredDiffs, stmtStat.Stats.RunLat.Mean, // 3
+		stmtStat.Stats.RunLat.SquaredDiffs, stmtStat.Stats.ServiceLat.Mean, stmtStat.Stats.ServiceLat.SquaredDiffs, // 3
+		stmtStat.Stats.OverheadLat.Mean, stmtStat.Stats.OverheadLat.SquaredDiffs, stmtStat.Stats.BytesRead.Mean, // 3
+		stmtStat.Stats.BytesRead.SquaredDiffs, stmtStat.Stats.RowsRead.Mean, stmtStat.Stats.RowsRead.SquaredDiffs, //3
+		stmtStat.Stats.ExecStats.Count, stmtStat.Stats.ExecStats.NetworkBytes.Mean, // 2
+		stmtStat.Stats.ExecStats.NetworkBytes.SquaredDiffs, stmtStat.Stats.ExecStats.MaxMemUsage.Mean, // 2
+		stmtStat.Stats.ExecStats.MaxMemUsage.SquaredDiffs, stmtStat.Stats.ExecStats.ContentionTime.Mean, // 2
+		stmtStat.Stats.ExecStats.ContentionTime.SquaredDiffs, stmtStat.Stats.ExecStats.NetworkMessages.Mean, //2
+		stmtStat.Stats.ExecStats.NetworkMessages.SquaredDiffs, stmtStat.Stats.ExecStats.MaxDiskUsage.Mean, // 2
+		stmtStat.Stats.ExecStats.MaxDiskUsage.SquaredDiffs, bytes) // 2
+
+	if err != nil {
+		return 0, errors.Errorf("insertion failed, fingerprint: %v, error: %v", stmtStat.ID, err)
+	}
+	if num != 1 {
+		return 0, errors.Errorf("expected inserting 1 row, but found: %d", num)
+	}
+
+	// total size written: double the byte array plus timestamp
+	return int64(len(bytes)*2) + int64(10), nil
+}
+
+func (s *Server) persistSQLTxnStats(
+	ctx context.Context,
+	transactionKey txnKey,
+	txnStat *roachpb.CollectedTransactionStatistics,
+	txn *kv.Txn,
+) (int64, error) {
+	fields := []string{
+		"fingerprint",
+		"timestamp",
+		"app_name",
+		// "statement_ids",
+		"count",
+		"max_retries",
+		"num_rows",
+		"num_rows_sd",
+		"service_lat",
+		"service_lat_sd",
+		"retry_lat",
+		"retry_lat_sd",
+		"commit_lat",
+		"commit_lat_sd",
+		"bytes_read",
+		"bytes_read_sd",
+		"rows_read",
+		"rows_read_sd",
+		"exec_count",
+		"exec_network_bytes",
+		"exec_network_bytes_sd",
+		"exec_max_mem_usage",
+		"exec_max_mem_usage_sd",
+		"exec_contention_time",
+		"exec_contention_time_sd",
+		"exec_network_messages",
+		"exec_network_messages_sd",
+		"exec_max_disk_usage",
+		"exec_max_disk_usage_sd",
+		"stats",
+	}
+
+	placeholders := make([]string, len(fields))
+	counter := 1
+	for idx := range fields {
+		if idx == 1 {
+			placeholders[idx] = "clock_timestamp()"
+		} else {
+			placeholders[idx] = fmt.Sprintf("$%d", counter)
+			counter++
+		}
+	}
+
+	stmt := fmt.Sprintf("INSERT INTO system.experimental_sql_txn_stats (%s) VALUES (%s)",
+		strings.Join(fields, ","), strings.Join(placeholders, ","))
+
+	bytes, err := txnStat.Marshal()
+	if err != nil {
+		return 0, err
+	}
+
+	// stmtIDs := make([]string, len(txnStat.StatementIDs))
+	// for idx, stmtID := range txnStat.StatementIDs {
+	// 	stmtIDs[idx] = fmt.Sprintf("%d", stmtID)
+	// }
+	// stmtIDsStr := fmt.Sprintf("{%s}", strings.Join(stmtIDs, ","))
+	// fmt.Printf("stmtIDsStr: %s\n", stmtIDsStr)
+
+	num, err := s.cfg.InternalExecutor.ExecEx(ctx, "flush-sql-txn-stats", txn,
+		sessiondata.NodeUserSessionDataOverride,
+		stmt,
+		transactionKey, txnStat.App, /* stmtIDsStr, */
+		txnStat.Stats.Count, txnStat.Stats.MaxRetries,
+		txnStat.Stats.NumRows.Mean, txnStat.Stats.NumRows.SquaredDiffs,
+		txnStat.Stats.ServiceLat.Mean, txnStat.Stats.ServiceLat.SquaredDiffs,
+		txnStat.Stats.RetryLat.Mean, txnStat.Stats.RetryLat.SquaredDiffs,
+		txnStat.Stats.CommitLat.Mean, txnStat.Stats.CommitLat.SquaredDiffs,
+		txnStat.Stats.BytesRead.Mean, txnStat.Stats.BytesRead.SquaredDiffs,
+		txnStat.Stats.RowsRead.Mean, txnStat.Stats.RowsRead.SquaredDiffs,
+		txnStat.Stats.ExecStats.Count,
+		txnStat.Stats.ExecStats.NetworkBytes.Mean, txnStat.Stats.ExecStats.NetworkBytes.SquaredDiffs,
+		txnStat.Stats.ExecStats.MaxMemUsage.Mean, txnStat.Stats.ExecStats.MaxMemUsage.SquaredDiffs,
+		txnStat.Stats.ExecStats.ContentionTime.Mean, txnStat.Stats.ExecStats.ContentionTime.SquaredDiffs,
+		txnStat.Stats.ExecStats.NetworkMessages.Mean, txnStat.Stats.ExecStats.NetworkMessages.SquaredDiffs,
+		txnStat.Stats.ExecStats.MaxDiskUsage.Mean, txnStat.Stats.ExecStats.MaxDiskUsage.SquaredDiffs,
+		bytes)
+
+	if err != nil {
+		return 0, err
+	}
+	if num != 1 {
+		return 0, errors.Errorf("expected inserting 1 row, but found: %d", num)
+	}
+
+	// total size written: double the byte array plus timestamp
+	return int64(len(bytes)*2) + int64(10), nil
+}
+
+// TODO(azhng): prototype code
+func (s *Server) PersistSQLStats(ctx context.Context) (int64, error) {
+	statementStats := s.GetUnscrubbedStmtStats()
+	stmtStatsSize := int64(0)
+	stmtEntryCnt := len(statementStats)
 
 	txnStatsSize := int64(0)
 	txnEntryCnt := 0
 
+	// Manually collect transaction stats.
 	collectedTxnKeys := make([]txnKey, 0)
 	collectedTransactionStats := make([]roachpb.CollectedTransactionStatistics, 0)
 	s.sqlStats.Lock()
@@ -416,27 +580,26 @@ func (s *Server) PersistSQLStats(ctx context.Context) (int64, error) {
 	}
 	s.sqlStats.Unlock()
 
-	err = s.cfg.DB.Txn(ctx, func(ctx context.Context, txn *kv.Txn) error {
+	err := s.cfg.DB.Txn(ctx, func(ctx context.Context, txn *kv.Txn) error {
+		for _, statementStat := range statementStats {
+			bytesWritten, err := s.persistSQLStmtStats(ctx, &statementStat, txn)
+			if err != nil {
+				return err
+			}
+			log.Infof(ctx, "MARKER stmt size: %v", bytesWritten)
+			stmtStatsSize += bytesWritten
+		}
+
+		log.Infof(ctx, "MARKER statement size: %d bytes, stmtEntryCnt: %d", stmtStatsSize, stmtEntryCnt)
+
 		for idx, transactionKey := range collectedTxnKeys {
-			payload := collectedTransactionStats[idx]
-			bytes, err := payload.Marshal()
+			txnStat := collectedTransactionStats[idx]
+			bytesWritten, err := s.persistSQLTxnStats(ctx, transactionKey, &txnStat, txn)
 			if err != nil {
 				return err
 			}
-
-			log.Infof(ctx, "MARKER txn size: %v", len(bytes))
-			txnStatsSize += int64(len(bytes)) + int64(20)
-
-			num, err := s.cfg.InternalExecutor.ExecEx(ctx, "flush-sql-txn-stats", txn,
-				sessiondata.NodeUserSessionDataOverride,
-				"INSERT INTO system.experimental_sql_txn_stats (fingerprint, timestamp, stats) VALUES ($1, clock_timestamp(), $2)",
-				transactionKey, bytes)
-			if err != nil {
-				return err
-			}
-			if num != 1 {
-				return errors.Errorf("expected inserting 1 row, but found: %d", num)
-			}
+			log.Infof(ctx, "MARKER txn size: %v", bytesWritten)
+			txnStatsSize += bytesWritten
 		}
 		return nil
 	})
