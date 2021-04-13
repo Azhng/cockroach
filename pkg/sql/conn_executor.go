@@ -12,6 +12,7 @@ package sql
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"math"
@@ -64,6 +65,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/util/syncutil"
 	"github.com/cockroachdb/cockroach/pkg/util/timeutil"
 	"github.com/cockroachdb/cockroach/pkg/util/tracing"
+	"github.com/cockroachdb/cockroach/pkg/util/uuid"
 	"github.com/cockroachdb/errors"
 	"github.com/cockroachdb/logtags"
 	"golang.org/x/net/trace"
@@ -351,6 +353,14 @@ func (s *Server) Start(ctx context.Context, stopper *stop.Stopper) {
 	s.PeriodicallyClearSQLStats(ctx, stopper, SQLStatReset, &s.sqlStats, sqlStatsFlushAdapter)
 }
 
+func stmtIDToUuidString(stmtID uint64) uuid.UUID {
+	result := uuid.UUID{}
+	stmtIDBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(stmtIDBytes, stmtID)
+	copy(result[:], stmtIDBytes)
+	return result
+}
+
 func (s *Server) persistSQLStmtStats(
 	ctx context.Context, stmtStat *roachpb.CollectedStatementStatistics, txn *kv.Txn,
 ) (int64, error) {
@@ -421,7 +431,7 @@ func (s *Server) persistSQLStmtStats(
 	num, err := s.cfg.InternalExecutor.ExecEx(ctx, "flush-sql-stmt-stats", txn,
 		sessiondata.NodeUserSessionDataOverride,
 		stmt,
-		stmtStat.ID, stmtStat.Key.App, stmtStat.Stats.SQLType, stmtStat.Key.Query, stmtStat.Key.DistSQL, // 5
+		stmtIDToUuidString(uint64(stmtStat.ID)).String(), stmtStat.Key.App, stmtStat.Stats.SQLType, stmtStat.Key.Query, stmtStat.Key.DistSQL, // 5
 		stmtStat.Key.Failed, stmtStat.Key.Opt, stmtStat.Key.ImplicitTxn, stmtStat.Key.Vec, stmtStat.Key.FullScan, // 5
 		stmtStat.Stats.Count, stmtStat.Stats.FirstAttemptCount, stmtStat.Stats.MaxRetries, stmtStat.Stats.NumRows.Mean, // 4
 		stmtStat.Stats.NumRows.SquaredDiffs, stmtStat.Stats.ParseLat.Mean, stmtStat.Stats.ParseLat.SquaredDiffs, // 3
@@ -457,7 +467,7 @@ func (s *Server) persistSQLTxnStats(
 		"fingerprint",
 		"timestamp",
 		"app_name",
-		// "statement_ids",
+		"statement_ids",
 		"count",
 		"max_retries",
 		"num_rows",
@@ -505,17 +515,17 @@ func (s *Server) persistSQLTxnStats(
 		return 0, err
 	}
 
-	// stmtIDs := make([]string, len(txnStat.StatementIDs))
-	// for idx, stmtID := range txnStat.StatementIDs {
-	// 	stmtIDs[idx] = fmt.Sprintf("%d", stmtID)
-	// }
-	// stmtIDsStr := fmt.Sprintf("{%s}", strings.Join(stmtIDs, ","))
-	// fmt.Printf("stmtIDsStr: %s\n", stmtIDsStr)
+	stmtIDs := make([]string, len(txnStat.StatementIDs))
+	for idx, stmtID := range txnStat.StatementIDs {
+		stmtIDs[idx] = stmtIDToUuidString(uint64(stmtID)).String()
+	}
+	stmtIDsStr := fmt.Sprintf("{%s}", strings.Join(stmtIDs, ","))
+	fmt.Printf("stmtIDsStr: %s\n", stmtIDsStr)
 
 	num, err := s.cfg.InternalExecutor.ExecEx(ctx, "flush-sql-txn-stats", txn,
 		sessiondata.NodeUserSessionDataOverride,
 		stmt,
-		transactionKey, txnStat.App, /* stmtIDsStr, */
+		stmtIDToUuidString(uint64(transactionKey)).String(), txnStat.App, stmtIDsStr,
 		txnStat.Stats.Count, txnStat.Stats.MaxRetries,
 		txnStat.Stats.NumRows.Mean, txnStat.Stats.NumRows.SquaredDiffs,
 		txnStat.Stats.ServiceLat.Mean, txnStat.Stats.ServiceLat.SquaredDiffs,
