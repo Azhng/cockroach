@@ -347,10 +347,10 @@ func (s *Server) Start(ctx context.Context, stopper *stop.Stopper) {
 	// continually allocating space for the SQL stats. Additionally, spawn
 	// a loop to clear the reported stats at the same large interval just
 	// in case the telemetry worker fails.
-	s.PeriodicallyClearSQLStats(ctx, stopper, MaxSQLStatReset, &s.sqlStats, sqlStatsFlushAdapter)
-	s.PeriodicallyClearSQLStats(ctx, stopper, MaxSQLStatReset, &s.reportedStats, s.ResetReportedStats)
+	s.PeriodicallyClearSQLStats(ctx, stopper, MaxSQLStatPersist, &s.sqlStats, sqlStatsFlushAdapter)
+	s.PeriodicallyClearSQLStats(ctx, stopper, MaxSQLStatPersist, &s.reportedStats, s.ResetReportedStats)
 	// Start a second loop to clear SQL stats at the requested interval.
-	s.PeriodicallyClearSQLStats(ctx, stopper, SQLStatReset, &s.sqlStats, sqlStatsFlushAdapter)
+	s.PeriodicallyClearSQLStats(ctx, stopper, SQLStatPersist, &s.sqlStats, sqlStatsFlushAdapter)
 }
 
 func stmtIDToUuidString(stmtID uint64) uuid.UUID {
@@ -520,7 +520,6 @@ func (s *Server) persistSQLTxnStats(
 		stmtIDs[idx] = stmtIDToUuidString(uint64(stmtID)).String()
 	}
 	stmtIDsStr := fmt.Sprintf("{%s}", strings.Join(stmtIDs, ","))
-	fmt.Printf("stmtIDsStr: %s\n", stmtIDsStr)
 
 	num, err := s.cfg.InternalExecutor.ExecEx(ctx, "flush-sql-txn-stats", txn,
 		sessiondata.NodeUserSessionDataOverride,
@@ -1104,20 +1103,21 @@ func (s *Server) newConnExecutorWithTxn(
 	return ex
 }
 
-// SQLStatReset is the cluster setting that controls at what interval SQL
+// SQLStatPersist is the cluster setting that controls at what interval SQL
 // statement statistics should be reset.
-var SQLStatReset = settings.RegisterDurationSetting(
-	"diagnostics.sql_stat_reset.interval",
+var SQLStatPersist = settings.RegisterDurationSetting(
+	"diagnostics.sql_stat_persist.interval",
 	"interval controlling how often SQL statement statistics should "+
-		"be reset (should be less than diagnostics.forced_sql_stat_reset.interval). It has a max value of 24H.",
-	time.Hour,
+		"be persisted (should be less than diagnostics.forced_sql_stat_reset.interval). It has a max value of 24H.",
+	// time.Hour,
+	time.Minute*5,
 	settings.NonNegativeDurationWithMaximum(time.Hour*24),
 ).WithPublic()
 
-// MaxSQLStatReset is the cluster setting that controls at what interval SQL
+// MaxSQLStatPersist is the cluster setting that controls at what interval SQL
 // statement statistics must be flushed within.
-var MaxSQLStatReset = settings.RegisterDurationSetting(
-	"diagnostics.forced_sql_stat_reset.interval",
+var MaxSQLStatPersist = settings.RegisterDurationSetting(
+	"diagnostics.forced_sql_stat_persist.interval",
 	"interval after which SQL statement statistics are refreshed even "+
 		"if not collected (should be more than diagnostics.sql_stat_reset.interval). It has a max value of 24H.",
 	time.Hour*2, // 2 x diagnostics.sql_stat_reset.interval
@@ -1136,7 +1136,7 @@ func (s *Server) PeriodicallyClearSQLStats(
 	stats *sqlStats,
 	reset func(ctx context.Context),
 ) {
-	_ = stopper.RunAsyncTask(ctx, "sql-stats-clearer", func(ctx context.Context) {
+	_ = stopper.RunAsyncTask(ctx, "sql-stats-flusher", func(ctx context.Context) {
 		var timer timeutil.Timer
 		for {
 			s.sqlStats.Lock()
