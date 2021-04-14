@@ -67,7 +67,7 @@ func (s *statusServer) Statements(
 		return status.Statements(ctx, localReq)
 	}
 
-	if err := s.iterateNodes(ctx, fmt.Sprintf("statement statistics for node %s", req.NodeID),
+	if err := s.iterateNodes(ctx, fmt.Sprintf("statement statistics for node %s", req.NodeID), 0,
 		dialFn,
 		nodeStatement,
 		func(nodeID roachpb.NodeID, resp interface{}) {

@@ -661,10 +661,16 @@ func (s *Server) removeExistingSQLStatsInTimeRange(
 	ctx context.Context, duration time.Duration, txn *kv.Txn,
 ) error {
 	stmt := fmt.Sprintf("DELETE FROM system.experimental_sql_stmt_stats WHERE timestamp > (current_timestamp() - MOD(EXTRACT(EPOCH FROM current_timestamp())::INT, %d)::INTERVAL)", uint64(duration.Seconds()))
-	_, err := s.cfg.InternalExecutor.ExecEx(ctx, "delete-stale-sql-stats", txn, sessiondata.NodeUserSessionDataOverride,
+	_, err := s.cfg.InternalExecutor.ExecEx(ctx, "delete-stale-sql-stmt-stats", txn, sessiondata.NodeUserSessionDataOverride,
 		stmt)
 	if err != nil {
-		return nil
+		return err
+	}
+	stmt = fmt.Sprintf("DELETE FROM system.experimental_sql_txn_stats WHERE timestamp > (current_timestamp() - MOD(EXTRACT(EPOCH FROM current_timestamp())::INT, %d)::INTERVAL)", uint64(duration.Seconds()))
+	_, err = s.cfg.InternalExecutor.ExecEx(ctx, "delete-stale-sql-txn-stats", txn, sessiondata.NodeUserSessionDataOverride,
+		stmt)
+	if err != nil {
+		return err
 	}
 	return nil
 }

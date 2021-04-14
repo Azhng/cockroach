@@ -1794,7 +1794,7 @@ func (s *statusServer) HotRanges(
 		}
 	}
 
-	if err := s.iterateNodes(ctx, "hot ranges", dialFn, nodeFn, responseFn, errorFn); err != nil {
+	if err := s.iterateNodes(ctx, "hot ranges", 0, dialFn, nodeFn, responseFn, errorFn); err != nil {
 		return nil, err
 	}
 
@@ -1877,7 +1877,7 @@ func (s *statusServer) Range(
 	}
 
 	if err := s.iterateNodes(
-		ctx, fmt.Sprintf("details about range %d", req.RangeId), dialFn, nodeFn, responseFn, errorFn,
+		ctx, fmt.Sprintf("details about range %d", req.RangeId), 0, dialFn, nodeFn, responseFn, errorFn,
 	); err != nil {
 		return nil, err
 	}
@@ -1915,6 +1915,7 @@ func (s *statusServer) ListLocalContentionEvents(
 func (s *statusServer) iterateNodes(
 	ctx context.Context,
 	errorCtx string,
+	numOfConcurrentReq uint64,
 	dialFn func(ctx context.Context, nodeID roachpb.NodeID) (interface{}, error),
 	nodeFn func(ctx context.Context, client interface{}, nodeID roachpb.NodeID) (interface{}, error),
 	responseFn func(nodeID roachpb.NodeID, resp interface{}),
@@ -1923,6 +1924,10 @@ func (s *statusServer) iterateNodes(
 	nodeStatuses, err := s.nodesStatusWithLiveness(ctx)
 	if err != nil {
 		return err
+	}
+
+	if numOfConcurrentReq == 0 {
+		numOfConcurrentReq = maxConcurrentRequests
 	}
 
 	// channels for responses and errors.
@@ -1958,7 +1963,7 @@ func (s *statusServer) iterateNodes(
 	}
 
 	// Issue the requests concurrently.
-	sem := quotapool.NewIntPool("node status", maxConcurrentRequests)
+	sem := quotapool.NewIntPool("node status", numOfConcurrentReq)
 	ctx, cancel := s.stopper.WithCancelOnQuiesce(ctx)
 	defer cancel()
 	for nodeID := range nodeStatuses {
@@ -2006,7 +2011,7 @@ func (s *statusServer) paginatedIterateNodes(
 	errorFn func(nodeID roachpb.NodeID, nodeFnError error),
 ) (next paginationState, err error) {
 	if limit == 0 {
-		return paginationState{}, s.iterateNodes(ctx, errorCtx, dialFn, nodeFn, responseFn, errorFn)
+		return paginationState{}, s.iterateNodes(ctx, errorCtx, 0, dialFn, nodeFn, responseFn, errorFn)
 	}
 	nodeStatuses, err := s.nodesStatusWithLiveness(ctx)
 	if err != nil {
@@ -2237,7 +2242,7 @@ func (s *statusServer) ListContentionEvents(
 		response.Errors = append(response.Errors, errResponse)
 	}
 
-	if err := s.iterateNodes(ctx, "contention events list", dialFn, nodeFn, responseFn, errorFn); err != nil {
+	if err := s.iterateNodes(ctx, "contention events list", 0, dialFn, nodeFn, responseFn, errorFn); err != nil {
 		return nil, err
 	}
 	return &response, nil

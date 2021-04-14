@@ -2285,7 +2285,7 @@ func (s *adminServer) EnqueueRange(
 
 	if err := contextutil.RunWithTimeout(ctx, "enqueue range", time.Minute, func(ctx context.Context) error {
 		return s.server.status.iterateNodes(
-			ctx, fmt.Sprintf("enqueue r%d in queue %s", req.RangeID, req.Queue),
+			ctx, fmt.Sprintf("enqueue r%d in queue %s", req.RangeID, req.Queue), 0,
 			dialFn, nodeFn, responseFn, errorFn,
 		)
 	}); err != nil {

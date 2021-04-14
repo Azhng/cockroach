@@ -215,7 +215,7 @@ func (a *apiV2Server) listRange(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := a.status.iterateNodes(
-		ctx, fmt.Sprintf("details about range %d", rangeID), dialFn, nodeFn, responseFn, errorFn,
+		ctx, fmt.Sprintf("details about range %d", rangeID), 0, dialFn, nodeFn, responseFn, errorFn,
 	); err != nil {
 		apiV2InternalError(ctx, err, w)
 		return

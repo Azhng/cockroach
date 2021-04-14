@@ -68,7 +68,7 @@ func (s *statusServer) FlushClusterSQLStats(
 
 	var fanoutError error
 
-	if err := s.iterateNodes(ctx, fmt.Sprintf("flush SQL statistics for node %s", req.NodeID),
+	if err := s.iterateNodes(ctx, fmt.Sprintf("flush SQL statistics for node %s", req.NodeID), 1,
 		dialFn,
 		flushSQLStats,
 		func(nodeID roachpb.NodeID, resp interface{}) {
@@ -107,6 +107,7 @@ func (s *statusServer) ResetSQLStats(
 			return nil, status.Errorf(codes.InvalidArgument, err.Error())
 		}
 		if local {
+			// TODO(azhng): separate persisted reset and in-memory reset.
 			s.admin.server.sqlServer.pgServer.SQLServer.ResetSQLStats(ctx)
 			return response, nil
 		}
@@ -129,7 +130,7 @@ func (s *statusServer) ResetSQLStats(
 
 	var fanoutError error
 
-	if err := s.iterateNodes(ctx, fmt.Sprintf("reset SQL statistics for node %s", req.NodeID),
+	if err := s.iterateNodes(ctx, fmt.Sprintf("reset SQL statistics for node %s", req.NodeID), 1,
 		dialFn,
 		resetSQLStats,
 		func(nodeID roachpb.NodeID, resp interface{}) {
