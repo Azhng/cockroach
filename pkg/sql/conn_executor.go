@@ -17,6 +17,7 @@ import (
 	"io"
 	"math"
 	"math/rand"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -431,20 +432,24 @@ func (s *Server) persistSQLStmtStats(
 	num, err := s.cfg.InternalExecutor.ExecEx(ctx, "flush-sql-stmt-stats", txn,
 		sessiondata.NodeUserSessionDataOverride,
 		stmt,
-		stmtIDToUuidString(uint64(stmtStat.ID)).String(), stmtStat.Key.App, stmtStat.Stats.SQLType, stmtStat.Key.Query, stmtStat.Key.DistSQL, // 5
-		stmtStat.Key.Failed, stmtStat.Key.Opt, stmtStat.Key.ImplicitTxn, stmtStat.Key.Vec, stmtStat.Key.FullScan, // 5
-		stmtStat.Stats.Count, stmtStat.Stats.FirstAttemptCount, stmtStat.Stats.MaxRetries, stmtStat.Stats.NumRows.Mean, // 4
-		stmtStat.Stats.NumRows.SquaredDiffs, stmtStat.Stats.ParseLat.Mean, stmtStat.Stats.ParseLat.SquaredDiffs, // 3
-		stmtStat.Stats.PlanLat.Mean, stmtStat.Stats.PlanLat.SquaredDiffs, stmtStat.Stats.RunLat.Mean, // 3
-		stmtStat.Stats.RunLat.SquaredDiffs, stmtStat.Stats.ServiceLat.Mean, stmtStat.Stats.ServiceLat.SquaredDiffs, // 3
-		stmtStat.Stats.OverheadLat.Mean, stmtStat.Stats.OverheadLat.SquaredDiffs, stmtStat.Stats.BytesRead.Mean, // 3
-		stmtStat.Stats.BytesRead.SquaredDiffs, stmtStat.Stats.RowsRead.Mean, stmtStat.Stats.RowsRead.SquaredDiffs, //3
-		stmtStat.Stats.ExecStats.Count, stmtStat.Stats.ExecStats.NetworkBytes.Mean, // 2
-		stmtStat.Stats.ExecStats.NetworkBytes.SquaredDiffs, stmtStat.Stats.ExecStats.MaxMemUsage.Mean, // 2
-		stmtStat.Stats.ExecStats.MaxMemUsage.SquaredDiffs, stmtStat.Stats.ExecStats.ContentionTime.Mean, // 2
-		stmtStat.Stats.ExecStats.ContentionTime.SquaredDiffs, stmtStat.Stats.ExecStats.NetworkMessages.Mean, //2
-		stmtStat.Stats.ExecStats.NetworkMessages.SquaredDiffs, stmtStat.Stats.ExecStats.MaxDiskUsage.Mean, // 2
-		stmtStat.Stats.ExecStats.MaxDiskUsage.SquaredDiffs, bytes) // 2
+		int64(stmtStat.ID), stmtStat.Key.App, stmtStat.Stats.SQLType, stmtStat.Key.Query,
+		stmtStat.Key.DistSQL, stmtStat.Key.Failed, stmtStat.Key.Opt, stmtStat.Key.ImplicitTxn, stmtStat.Key.Vec,
+		stmtStat.Key.FullScan, stmtStat.Stats.Count, stmtStat.Stats.FirstAttemptCount, stmtStat.Stats.MaxRetries,
+		stmtStat.Stats.NumRows.Mean, stmtStat.Stats.NumRows.SquaredDiffs,
+		stmtStat.Stats.ParseLat.Mean, stmtStat.Stats.ParseLat.SquaredDiffs,
+		stmtStat.Stats.PlanLat.Mean, stmtStat.Stats.PlanLat.SquaredDiffs,
+		stmtStat.Stats.RunLat.Mean, stmtStat.Stats.RunLat.SquaredDiffs,
+		stmtStat.Stats.ServiceLat.Mean, stmtStat.Stats.ServiceLat.SquaredDiffs,
+		stmtStat.Stats.OverheadLat.Mean, stmtStat.Stats.OverheadLat.SquaredDiffs,
+		stmtStat.Stats.BytesRead.Mean, stmtStat.Stats.BytesRead.SquaredDiffs,
+		stmtStat.Stats.RowsRead.Mean, stmtStat.Stats.RowsRead.SquaredDiffs,
+		stmtStat.Stats.ExecStats.Count,
+		stmtStat.Stats.ExecStats.NetworkBytes.Mean, stmtStat.Stats.ExecStats.NetworkBytes.SquaredDiffs,
+		stmtStat.Stats.ExecStats.MaxMemUsage.Mean, stmtStat.Stats.ExecStats.MaxMemUsage.SquaredDiffs,
+		stmtStat.Stats.ExecStats.ContentionTime.Mean, stmtStat.Stats.ExecStats.ContentionTime.SquaredDiffs,
+		stmtStat.Stats.ExecStats.NetworkMessages.Mean, stmtStat.Stats.ExecStats.NetworkMessages.SquaredDiffs,
+		stmtStat.Stats.ExecStats.MaxDiskUsage.Mean, stmtStat.Stats.ExecStats.MaxDiskUsage.SquaredDiffs,
+		bytes)
 
 	if err != nil {
 		return 0, errors.Errorf("insertion failed, fingerprint: %v, error: %v", stmtStat.ID, err)
@@ -517,14 +522,14 @@ func (s *Server) persistSQLTxnStats(
 
 	stmtIDs := make([]string, len(txnStat.StatementIDs))
 	for idx, stmtID := range txnStat.StatementIDs {
-		stmtIDs[idx] = stmtIDToUuidString(uint64(stmtID)).String()
+		stmtIDs[idx] = strconv.FormatInt(int64(stmtID), 10)
 	}
 	stmtIDsStr := fmt.Sprintf("{%s}", strings.Join(stmtIDs, ","))
 
 	num, err := s.cfg.InternalExecutor.ExecEx(ctx, "flush-sql-txn-stats", txn,
 		sessiondata.NodeUserSessionDataOverride,
 		stmt,
-		stmtIDToUuidString(uint64(transactionKey)).String(), txnStat.App, stmtIDsStr,
+		int64(transactionKey), txnStat.App, stmtIDsStr,
 		txnStat.Stats.Count, txnStat.Stats.MaxRetries,
 		txnStat.Stats.NumRows.Mean, txnStat.Stats.NumRows.SquaredDiffs,
 		txnStat.Stats.ServiceLat.Mean, txnStat.Stats.ServiceLat.SquaredDiffs,
@@ -551,55 +556,187 @@ func (s *Server) persistSQLTxnStats(
 	return int64(len(bytes)*2) + int64(10), nil
 }
 
+func (s *Server) fetchPersistedSQLStats(
+	ctx context.Context, duration time.Duration, txn *kv.Txn,
+) (*sqlStats, error) {
+	sqlStats := &sqlStats{
+		st:   s.cfg.Settings,
+		apps: make(map[string]*appStats),
+	}
+
+	persistedStatementStats, err := s.GetPersistedStmtStats(ctx, &duration, txn)
+	if err != nil {
+		return nil, err
+	}
+
+	persistedTransactionFingerprints, persistedTransactionStats, err := s.GetPersistedTxnStats(ctx, &duration, txn)
+	if err != nil {
+		return nil, err
+	}
+
+	insertStmtStats := func(appStat *appStats, stmtStat *roachpb.CollectedStatementStatistics) {
+		key := stmtKey{
+			anonymizedStmt: stmtStat.Key.Query,
+			failed:         stmtStat.Key.Failed,
+			implicitTxn:    stmtStat.Key.ImplicitTxn,
+		}
+		stat, ok := appStat.stmts[key]
+		if !ok {
+			newStmtStat := &stmtStats{ID: stmtStat.ID}
+			newStmtStat.mu.Lock()
+			{
+				newStmtStat.mu.distSQLUsed = stmtStat.Key.DistSQL
+				newStmtStat.mu.vectorized = stmtStat.Key.Vec
+				newStmtStat.mu.fullScan = stmtStat.Key.FullScan
+				newStmtStat.mu.data = stmtStat.Stats
+			}
+			newStmtStat.mu.Unlock()
+			appStat.stmts[key] = newStmtStat
+		} else {
+			stat.mu.Lock()
+			stat.mu.data.Add(&stmtStat.Stats)
+			stat.mu.Unlock()
+		}
+	}
+
+	for _, stmtStat := range persistedStatementStats {
+		if appStat, ok := sqlStats.apps[stmtStat.Key.App]; ok {
+			insertStmtStats(appStat, &stmtStat)
+		} else {
+			newAppStat := &appStats{
+				st:    s.cfg.Settings,
+				stmts: make(map[stmtKey]*stmtStats),
+				txns:  make(map[txnKey]*txnStats),
+			}
+			insertStmtStats(newAppStat, &stmtStat)
+			sqlStats.apps[stmtStat.Key.App] = newAppStat
+		}
+	}
+
+	insertTxnStat := func(appStat *appStats, key txnKey, txnStat *roachpb.CollectedTransactionStatistics) {
+		stat, ok := appStat.txns[key]
+		if !ok {
+			newTxnStat := &txnStats{
+				statementIDs: txnStat.StatementIDs,
+			}
+			newTxnStat.mu.Lock()
+			{
+				newTxnStat.mu.data = txnStat.Stats
+			}
+			newTxnStat.mu.Unlock()
+			appStat.txns[key] = newTxnStat
+		} else {
+			stat.mu.Lock()
+			{
+				stat.mu.data.Add(&txnStat.Stats)
+			}
+			stat.mu.Unlock()
+		}
+	}
+
+	for idx, txnStat := range persistedTransactionStats {
+		key := persistedTransactionFingerprints[idx]
+		if appStat, ok := sqlStats.apps[txnStat.App]; ok {
+			insertTxnStat(appStat, key, &txnStat)
+		} else {
+			newAppStat := &appStats{
+				st:    s.cfg.Settings,
+				stmts: make(map[stmtKey]*stmtStats),
+				txns:  make(map[txnKey]*txnStats),
+			}
+			insertTxnStat(newAppStat, key, &txnStat)
+			sqlStats.apps[txnStat.App] = newAppStat
+		}
+	}
+
+	return sqlStats, nil
+}
+
+// TODO(azhng): prototype code, also there might need some tweaking here
+//  relying on current_timestamp feels like a  bad idea.
+//  what happen if the cron task did not get invoked in time,
+//  then we will have "stale" data leaked away then we will need more
+//  clean up afterwards.
+func (s *Server) removeExistingSQLStatsInTimeRange(
+	ctx context.Context, duration time.Duration, txn *kv.Txn,
+) error {
+	stmt := fmt.Sprintf("DELETE FROM system.experimental_sql_stmt_stats WHERE timestamp > (current_timestamp() - MOD(EXTRACT(EPOCH FROM current_timestamp())::INT, %d)::INTERVAL)", uint64(duration.Seconds()))
+	_, err := s.cfg.InternalExecutor.ExecEx(ctx, "delete-stale-sql-stats", txn, sessiondata.NodeUserSessionDataOverride,
+		stmt)
+	if err != nil {
+		return nil
+	}
+	return nil
+}
+
 // TODO(azhng): prototype code
 func (s *Server) PersistSQLStats(ctx context.Context) (int64, error) {
-	statementStats := s.GetUnscrubbedStmtStats()
 	stmtStatsSize := int64(0)
-	stmtEntryCnt := len(statementStats)
-
+	stmtEntryCnt := 0
 	txnStatsSize := int64(0)
 	txnEntryCnt := 0
 
-	// Manually collect transaction stats.
-	collectedTxnKeys := make([]txnKey, 0)
-	collectedTransactionStats := make([]roachpb.CollectedTransactionStatistics, 0)
-	s.sqlStats.Lock()
-
-	{
-		for appName, app := range s.sqlStats.apps {
-			app.Lock()
-			log.Info(ctx, "MARKER app lock acquired")
-			txnEntryCnt += len(app.txns)
-			{
-				for transactionKey, transactionStat := range app.txns {
-					transactionStat.mu.Lock()
-					data := transactionStat.mu.data
-					transactionStat.mu.Unlock()
-					payload := roachpb.CollectedTransactionStatistics{
-						StatementIDs: transactionStat.statementIDs,
-						App:          appName,
-						Stats:        data,
-					}
-					collectedTransactionStats = append(collectedTransactionStats, payload)
-					collectedTxnKeys = append(collectedTxnKeys, transactionKey)
-				}
-			}
-			app.Unlock()
-		}
-	}
-	s.sqlStats.Unlock()
-
 	err := s.cfg.DB.Txn(ctx, func(ctx context.Context, txn *kv.Txn) error {
+		persistedSQLStats, err := s.fetchPersistedSQLStats(ctx, time.Minute*5, txn)
+
+		if err != nil {
+			return errors.Errorf("unable to fetch persisted stats within past 5 minutes: %v", err)
+		}
+
+		s.sqlStats.Lock()
+		for app, persistedAppStat := range persistedSQLStats.apps {
+			if appStat, ok := s.sqlStats.apps[app]; ok {
+				appStat.Add(persistedAppStat)
+			} else {
+				// TODO(@azhng): is deep copy required here?
+				s.sqlStats.apps[app] = persistedAppStat
+			}
+		}
+		s.sqlStats.Unlock()
+
+		err = s.removeExistingSQLStatsInTimeRange(ctx, time.Minute*5, txn)
+		if err != nil {
+			return errors.Errorf("unable to delete persisted stats within past 5 minutes: %v", err)
+		}
+
+		statementStats := s.GetUnscrubbedStmtStats()
+		stmtEntryCnt = len(statementStats)
+
+		// Manually collect transaction stats.
+		collectedTxnKeys := make([]txnKey, 0)
+		collectedTransactionStats := make([]roachpb.CollectedTransactionStatistics, 0)
+		s.sqlStats.Lock()
+
+		{
+			for appName, app := range s.sqlStats.apps {
+				app.Lock()
+				txnEntryCnt += len(app.txns)
+				{
+					for transactionKey, transactionStat := range app.txns {
+						transactionStat.mu.Lock()
+						data := transactionStat.mu.data
+						transactionStat.mu.Unlock()
+						payload := roachpb.CollectedTransactionStatistics{
+							StatementIDs: transactionStat.statementIDs,
+							App:          appName,
+							Stats:        data,
+						}
+						collectedTransactionStats = append(collectedTransactionStats, payload)
+						collectedTxnKeys = append(collectedTxnKeys, transactionKey)
+					}
+				}
+				app.Unlock()
+			}
+		}
+		s.sqlStats.Unlock()
+
 		for _, statementStat := range statementStats {
 			bytesWritten, err := s.persistSQLStmtStats(ctx, &statementStat, txn)
 			if err != nil {
 				return err
 			}
-			log.Infof(ctx, "MARKER stmt size: %v", bytesWritten)
 			stmtStatsSize += bytesWritten
 		}
-
-		log.Infof(ctx, "MARKER statement size: %d bytes, stmtEntryCnt: %d", stmtStatsSize, stmtEntryCnt)
 
 		for idx, transactionKey := range collectedTxnKeys {
 			txnStat := collectedTransactionStats[idx]
@@ -607,7 +744,6 @@ func (s *Server) PersistSQLStats(ctx context.Context) (int64, error) {
 			if err != nil {
 				return err
 			}
-			log.Infof(ctx, "MARKER txn size: %v", bytesWritten)
 			txnStatsSize += bytesWritten
 		}
 		return nil
@@ -708,13 +844,19 @@ func (s *Server) GetExecutorConfig() *ExecutorConfig {
 // TODO(@azhng): seriously we need generics here v
 // GetPersistedTxnStats returns the transaction statistics stored in system table.
 func (s *Server) GetPersistedTxnStats(
-	ctx context.Context,
-) ([]roachpb.CollectedTransactionStatistics, error) {
+	ctx context.Context, duration *time.Duration, txn *kv.Txn,
+) ([]txnKey, []roachpb.CollectedTransactionStatistics, error) {
+	resultFingerprints := make([]txnKey, 0)
 	result := make([]roachpb.CollectedTransactionStatistics, 0)
-	err := s.cfg.DB.Txn(ctx, func(ctx context.Context, txn *kv.Txn) error {
+	// stmt:= "SELECT stats FROM system.experimental_sql_txn_stats AS OF SYSTEM TIME follower_read_timestamp()")
+	stmt := "SELECT fingerprint, stats FROM system.experimental_sql_txn_stats"
+	if duration != nil {
+		stmt = fmt.Sprintf("%s WHERE timestamp > (current_timestamp() - MOD(EXTRACT(EPOCH FROM current_timestamp())::INT, %d)::INTERVAL)",
+			stmt, uint64(duration.Seconds()))
+	}
+	query := func(ctx context.Context, txn *kv.Txn) error {
 		rows, err := s.cfg.InternalExecutor.QueryIteratorEx(ctx, "get-persisted-txn-stats", txn, sessiondata.NodeUserSessionDataOverride,
-			//	"SELECT stats FROM system.experimental_sql_txn_stats AS OF SYSTEM TIME follower_read_timestamp()")
-			"SELECT stats FROM system.experimental_sql_txn_stats")
+			stmt)
 		if err != nil {
 			return err
 		}
@@ -725,11 +867,13 @@ func (s *Server) GetPersistedTxnStats(
 				return err
 			}
 			row := rows.Cur()
+			key := txnKey(tree.MustBeDInt(row[0]))
 			stats := roachpb.CollectedTransactionStatistics{}
-			buf := []byte(tree.MustBeDBytes(row[0]))
+			buf := []byte(tree.MustBeDBytes(row[1]))
 			if err := protoutil.Unmarshal(buf, &stats); err != nil {
 				return err
 			}
+			resultFingerprints = append(resultFingerprints, key)
 			result = append(result, stats)
 		}
 
@@ -738,25 +882,38 @@ func (s *Server) GetPersistedTxnStats(
 			return err
 		}
 		return nil
-	})
-
-	if err != nil {
-		return nil, errors.Errorf("unable to fetch persisted txn stats: %v", err)
 	}
 
-	return result, nil
+	var err error
+	if txn == nil {
+		err = s.cfg.DB.Txn(ctx, query)
+
+	} else {
+		err = query(ctx, txn)
+	}
+	if err != nil {
+		return nil, nil, errors.Errorf("unable to fetch persisted txn stats: %v", err)
+	}
+
+	return resultFingerprints, result, nil
 }
 
 // GetPersistedStmtStats returns the statement statistics stored in system table.
 func (s *Server) GetPersistedStmtStats(
-	ctx context.Context,
+	ctx context.Context, duration *time.Duration, txn *kv.Txn,
 ) ([]roachpb.CollectedStatementStatistics, error) {
 	result := make([]roachpb.CollectedStatementStatistics, 0)
-	err := s.cfg.DB.Txn(ctx, func(ctx context.Context, txn *kv.Txn) error {
+	// TODO(azhng): odd issue with AOST
+	// stmt := "SELECT stats FROM system.experimental_sql_stmt_stats AS OF SYSTEM TIME follower_read_timestamp()")
+	stmt := "SELECT stats FROM system.experimental_sql_stmt_stats"
+	if duration != nil {
+		stmt = fmt.Sprintf("%s WHERE timestamp > (current_timestamp() - MOD(EXTRACT(EPOCH FROM current_timestamp())::INT, %d)::INTERVAL)",
+			stmt, uint64(duration.Seconds()))
+	}
+
+	query := func(ctx context.Context, txn *kv.Txn) error {
 		rows, err := s.cfg.InternalExecutor.QueryIteratorEx(ctx, "get-persisted-stmt-stats", txn, sessiondata.NodeUserSessionDataOverride,
-			// TODO(azhng): odd issue with AOST
-			// 	"SELECT stats FROM system.experimental_sql_stmt_stats AS OF SYSTEM TIME follower_read_timestamp()")
-			"SELECT stats FROM system.experimental_sql_stmt_stats")
+			stmt)
 		if err != nil {
 			return err
 		}
@@ -780,7 +937,14 @@ func (s *Server) GetPersistedStmtStats(
 			return err
 		}
 		return nil
-	})
+	}
+
+	var err error
+	if txn == nil {
+		err = s.cfg.DB.Txn(ctx, query)
+	} else {
+		err = query(ctx, txn)
+	}
 
 	if err != nil {
 		return nil, errors.Errorf("unable to fetch persisted stmt stats: %v", err)

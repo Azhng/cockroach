@@ -368,7 +368,7 @@ CREATE TABLE system.join_tokens (
 
 	ExperimentalSQLStmtStatsTableSchema = `
 CREATE TABLE system.sql_stmt_stats (
-	  fingerprint UUID NOT NULL,
+	  fingerprint INT NOT NULL,
 		timestamp   TIMESTAMP NOT NULL,
 
 -- add in plan_hash/plan_fingerprint here
@@ -421,10 +421,10 @@ CREATE TABLE system.sql_stmt_stats (
 )`
 	ExperimentalSQLTxnStatsTableSchema = `
 CREATE TABLE system.sql_txn_stats (
-	  fingerprint    UUID NOT NULL,
+	  fingerprint    INT NOT NULL,
 		timestamp      TIMESTAMP NOT NULL,
 		app_name       STRING NOT NULL,
-		statement_ids  UUID[] NOT NULL, -- using uuid because pg does not have unsigned 64 bit integer
+		statement_ids  INT[] NOT NULL,
 
 		count          INT8 NOT NULL,
     max_retries    INT8 NOT NULL,
@@ -1908,7 +1908,7 @@ var (
 		UnexposedParentSchemaID: keys.PublicSchemaID,
 		Version:                 1,
 		Columns: []descpb.ColumnDescriptor{
-			{Name: "fingerprint", ID: 1, Type: types.Uuid, Nullable: false},
+			{Name: "fingerprint", ID: 1, Type: types.Int, Nullable: false},
 			{Name: "timestamp", ID: 2, Type: types.Timestamp, Nullable: false},
 			{Name: "app_name", ID: 3, Type: types.String, Nullable: false},
 			{Name: "sql_type", ID: 4, Type: types.String, Nullable: false},
@@ -2032,10 +2032,10 @@ var (
 		UnexposedParentSchemaID: keys.PublicSchemaID,
 		Version:                 1,
 		Columns: []descpb.ColumnDescriptor{
-			{Name: "fingerprint", ID: 1, Type: types.Uuid, Nullable: false},
+			{Name: "fingerprint", ID: 1, Type: types.Int, Nullable: false},
 			{Name: "timestamp", ID: 2, Type: types.Timestamp, Nullable: false},
 			{Name: "app_name", ID: 3, Type: types.String, Nullable: false},
-			{Name: "statement_ids", ID: 4, Type: types.UUIDArray, Nullable: false},
+			{Name: "statement_ids", ID: 4, Type: types.IntArray, Nullable: false},
 			{Name: "count", ID: 5, Type: types.Int, Nullable: false},
 			{Name: "max_retries", ID: 6, Type: types.Int, Nullable: false},
 			{Name: "num_rows", ID: 7, Type: types.Float, Nullable: false},

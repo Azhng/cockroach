@@ -85,7 +85,7 @@ func (s *statusServer) Statements(
 		return nil, err
 	}
 
-	statementStats, err := s.admin.server.sqlServer.pgServer.SQLServer.GetPersistedStmtStats(ctx)
+	statementStats, err := s.admin.server.sqlServer.pgServer.SQLServer.GetPersistedStmtStats(ctx, nil /* duration */, nil /* txn */)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +102,7 @@ func (s *statusServer) Statements(
 	}
 	response.Statements = append(response.Statements, extendedStatementStats...)
 
-	txnStats, err := s.admin.server.sqlServer.pgServer.SQLServer.GetPersistedTxnStats(ctx)
+	_, txnStats, err := s.admin.server.sqlServer.pgServer.SQLServer.GetPersistedTxnStats(ctx, nil /* duration */, nil /* txn */)
 	if err != nil {
 		return nil, err
 	}
