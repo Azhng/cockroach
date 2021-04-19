@@ -23,7 +23,7 @@ func experimentalSQLStmtStatsTableMigration(
 	ctx context.Context, _ clusterversion.ClusterVersion, d migration.SQLDeps,
 ) error {
 	return sqlmigrations.CreateSystemTable(
-		ctx, d.DB, d.Codec, d.Settings, systemschema.ExperimentalSQLStmtStatsTable,
+		ctx, d.DB, d.Codec, d.Settings, systemschema.SQLStmtStatsTable,
 	)
 }
 
@@ -31,6 +31,6 @@ func experimentalSQLTxnStatsTableMigration(
 	ctx context.Context, _ clusterversion.ClusterVersion, d migration.SQLDeps,
 ) error {
 	return sqlmigrations.CreateSystemTable(
-		ctx, d.DB, d.Codec, d.Settings, systemschema.ExperimentalSQLTxnStatsTable,
+		ctx, d.DB, d.Codec, d.Settings, systemschema.SQLTxnStatsTable,
 	)
 }

@@ -406,8 +406,8 @@ const (
 	JoinTokensTableID                   = 41
 
 	// Experimental SQL Stats table
-	ExperimentalSQLStmtStatsTableID = 42
-	ExperimentalSQLTxnStatsTableID  = 43
+	SQLStmtStatsTableID = 42
+	SQLTxnStatsTableID  = 43
 
 	// CommentType is type for system.comments
 	DatabaseCommentType = 0

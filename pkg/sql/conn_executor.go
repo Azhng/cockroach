@@ -367,7 +367,7 @@ func (s *Server) persistSQLStmtStats(
 ) (int64, error) {
 	fields := []string{
 		"fingerprint",
-		"timestamp",
+		"created_at",
 		"app_name",
 		"sql_type",
 		"query",
@@ -414,14 +414,15 @@ func (s *Server) persistSQLStmtStats(
 	counter := 1
 	for idx := range fields {
 		if idx == 1 {
-			placeholders[idx] = "clock_timestamp()"
+			//placeholders[idx] = "clock_timestamp()"
+			placeholders[idx] = "current_timestamp()"
 		} else {
 			placeholders[idx] = fmt.Sprintf("$%d", counter)
 			counter++
 		}
 	}
 
-	stmt := fmt.Sprintf("INSERT INTO system.experimental_sql_stmt_stats (%s) VALUES (%s)",
+	stmt := fmt.Sprintf("INSERT INTO system.sql_stmt_stats (%s) VALUES (%s)",
 		strings.Join(fields, ","), strings.Join(placeholders, ","))
 
 	bytes, err := stmtStat.Marshal()
@@ -470,7 +471,7 @@ func (s *Server) persistSQLTxnStats(
 ) (int64, error) {
 	fields := []string{
 		"fingerprint",
-		"timestamp",
+		"created_at",
 		"app_name",
 		"statement_ids",
 		"count",
@@ -505,14 +506,15 @@ func (s *Server) persistSQLTxnStats(
 	counter := 1
 	for idx := range fields {
 		if idx == 1 {
-			placeholders[idx] = "clock_timestamp()"
+			//placeholders[idx] = "clock_timestamp()"
+			placeholders[idx] = "current_timestamp()"
 		} else {
 			placeholders[idx] = fmt.Sprintf("$%d", counter)
 			counter++
 		}
 	}
 
-	stmt := fmt.Sprintf("INSERT INTO system.experimental_sql_txn_stats (%s) VALUES (%s)",
+	stmt := fmt.Sprintf("INSERT INTO system.sql_txn_stats (%s) VALUES (%s)",
 		strings.Join(fields, ","), strings.Join(placeholders, ","))
 
 	bytes, err := txnStat.Marshal()
@@ -660,13 +662,13 @@ func (s *Server) fetchPersistedSQLStats(
 func (s *Server) removeExistingSQLStatsInTimeRange(
 	ctx context.Context, duration time.Duration, txn *kv.Txn,
 ) error {
-	stmt := fmt.Sprintf("DELETE FROM system.experimental_sql_stmt_stats WHERE timestamp > (current_timestamp() - MOD(EXTRACT(EPOCH FROM current_timestamp())::INT, %d)::INTERVAL)", uint64(duration.Seconds()))
+	stmt := fmt.Sprintf("DELETE FROM system.sql_stmt_stats WHERE created_at > (current_timestamp() - MOD(EXTRACT(EPOCH FROM current_timestamp())::INT, %d)::INTERVAL)", uint64(duration.Seconds()))
 	_, err := s.cfg.InternalExecutor.ExecEx(ctx, "delete-stale-sql-stmt-stats", txn, sessiondata.NodeUserSessionDataOverride,
 		stmt)
 	if err != nil {
 		return err
 	}
-	stmt = fmt.Sprintf("DELETE FROM system.experimental_sql_txn_stats WHERE timestamp > (current_timestamp() - MOD(EXTRACT(EPOCH FROM current_timestamp())::INT, %d)::INTERVAL)", uint64(duration.Seconds()))
+	stmt = fmt.Sprintf("DELETE FROM system.sql_txn_stats WHERE created_at > (current_timestamp() - MOD(EXTRACT(EPOCH FROM current_timestamp())::INT, %d)::INTERVAL)", uint64(duration.Seconds()))
 	_, err = s.cfg.InternalExecutor.ExecEx(ctx, "delete-stale-sql-txn-stats", txn, sessiondata.NodeUserSessionDataOverride,
 		stmt)
 	if err != nil {
@@ -783,12 +785,12 @@ func (s *Server) ResetSQLStats(ctx context.Context) {
 	// TODO(azhng): we need to delete persisted stats too as well.
 	err := s.cfg.DB.Txn(ctx, func(ctx context.Context, txn *kv.Txn) error {
 		_, err := s.cfg.InternalExecutor.ExecEx(ctx, "delete-sql-stmt-stats", txn, sessiondata.NodeUserSessionDataOverride,
-			"TRUNCATE system.experimental_sql_stmt_stats")
+			"TRUNCATE system.sql_stmt_stats")
 		if err != nil {
 			return errors.Errorf("failed to delete stmt stats: %v", err)
 		}
 		_, err = s.cfg.InternalExecutor.ExecEx(ctx, "delete-sql-txn-stats", txn, sessiondata.NodeUserSessionDataOverride,
-			"TRUNCATE system.experimental_sql_txn_stats")
+			"TRUNCATE system.sql_txn_stats")
 		if err != nil {
 			return errors.Errorf("failed to delete txn stats: %v", err)
 		}
@@ -854,10 +856,10 @@ func (s *Server) GetPersistedTxnStats(
 ) ([]txnKey, []roachpb.CollectedTransactionStatistics, error) {
 	resultFingerprints := make([]txnKey, 0)
 	result := make([]roachpb.CollectedTransactionStatistics, 0)
-	// stmt:= "SELECT stats FROM system.experimental_sql_txn_stats AS OF SYSTEM TIME follower_read_timestamp()")
-	stmt := "SELECT fingerprint, stats FROM system.experimental_sql_txn_stats"
+	// stmt:= "SELECT stats FROM system.sql_txn_stats AS OF SYSTEM TIME follower_read_timestamp()")
+	stmt := "SELECT fingerprint, stats FROM system.sql_txn_stats"
 	if duration != nil {
-		stmt = fmt.Sprintf("%s WHERE timestamp > (current_timestamp() - MOD(EXTRACT(EPOCH FROM current_timestamp())::INT, %d)::INTERVAL)",
+		stmt = fmt.Sprintf("%s WHERE created_at > (current_timestamp() - MOD(EXTRACT(EPOCH FROM current_timestamp())::INT, %d)::INTERVAL)",
 			stmt, uint64(duration.Seconds()))
 	}
 	query := func(ctx context.Context, txn *kv.Txn) error {
@@ -910,10 +912,10 @@ func (s *Server) GetPersistedStmtStats(
 ) ([]roachpb.CollectedStatementStatistics, error) {
 	result := make([]roachpb.CollectedStatementStatistics, 0)
 	// TODO(azhng): odd issue with AOST
-	// stmt := "SELECT stats FROM system.experimental_sql_stmt_stats AS OF SYSTEM TIME follower_read_timestamp()")
-	stmt := "SELECT stats FROM system.experimental_sql_stmt_stats"
+	// stmt := "SELECT stats FROM system.sql_stmt_stats AS OF SYSTEM TIME follower_read_timestamp()")
+	stmt := "SELECT stats FROM system.sql_stmt_stats"
 	if duration != nil {
-		stmt = fmt.Sprintf("%s WHERE timestamp > (current_timestamp() - MOD(EXTRACT(EPOCH FROM current_timestamp())::INT, %d)::INTERVAL)",
+		stmt = fmt.Sprintf("%s WHERE created_at > (current_timestamp() - MOD(EXTRACT(EPOCH FROM current_timestamp())::INT, %d)::INTERVAL)",
 			stmt, uint64(duration.Seconds()))
 	}
 

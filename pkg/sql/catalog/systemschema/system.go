@@ -366,10 +366,10 @@ CREATE TABLE system.join_tokens (
     FAMILY "primary" (id, secret, expiration)
 )`
 
-	ExperimentalSQLStmtStatsTableSchema = `
+	SQLStmtStatsTableSchema = `
 CREATE TABLE system.sql_stmt_stats (
 	  fingerprint INT NOT NULL,
-		timestamp   TIMESTAMP NOT NULL,
+		created_at  TIMESTAMP NOT NULL,
 
 -- add in plan_hash/plan_fingerprint here
 
@@ -417,12 +417,12 @@ CREATE TABLE system.sql_stmt_stats (
     exec_max_disk_usage      FLOAT8 NOT NULL,
     exec_max_disk_usage_sd   FLOAT8 NOT NULL,
 
-    PRIMARY KEY (fingerprint, timestamp)
+    PRIMARY KEY (fingerprint, created_at)
 )`
-	ExperimentalSQLTxnStatsTableSchema = `
+	SQLTxnStatsTableSchema = `
 CREATE TABLE system.sql_txn_stats (
 	  fingerprint    INT NOT NULL,
-		timestamp      TIMESTAMP NOT NULL,
+		created_at     TIMESTAMP NOT NULL,
 		app_name       STRING NOT NULL,
 		statement_ids  INT[] NOT NULL,
 
@@ -456,7 +456,7 @@ CREATE TABLE system.sql_txn_stats (
 
 		stats BYTES NOT NULL,
 
-    PRIMARY KEY (fingerprint, timestamp);
+    PRIMARY KEY (fingerprint, created_at);
 )`
 )
 
@@ -1901,15 +1901,15 @@ var (
 		NextMutationID: 1,
 	})
 
-	ExperimentalSQLStmtStatsTable = makeTable(descpb.TableDescriptor{
-		Name:                    "experimental_sql_stmt_stats",
-		ID:                      keys.ExperimentalSQLStmtStatsTableID,
+	SQLStmtStatsTable = makeTable(descpb.TableDescriptor{
+		Name:                    "sql_stmt_stats",
+		ID:                      keys.SQLStmtStatsTableID,
 		ParentID:                keys.SystemDatabaseID,
 		UnexposedParentSchemaID: keys.PublicSchemaID,
 		Version:                 1,
 		Columns: []descpb.ColumnDescriptor{
 			{Name: "fingerprint", ID: 1, Type: types.Int, Nullable: false},
-			{Name: "timestamp", ID: 2, Type: types.Timestamp, Nullable: false},
+			{Name: "created_at", ID: 2, Type: types.Timestamp, Nullable: false},
 			{Name: "app_name", ID: 3, Type: types.String, Nullable: false},
 			{Name: "sql_type", ID: 4, Type: types.String, Nullable: false},
 			{Name: "query", ID: 5, Type: types.String, Nullable: false},
@@ -1958,7 +1958,7 @@ var (
 				ID:   0,
 				ColumnNames: []string{
 					"fingerprint",
-					"timestamp",
+					"created_at",
 					"app_name",
 					"sql_type",
 					"query",
@@ -2010,7 +2010,7 @@ var (
 			Name:        tabledesc.PrimaryKeyIndexName,
 			ID:          1,
 			Unique:      true,
-			ColumnNames: []string{"fingerprint", "timestamp"},
+			ColumnNames: []string{"fingerprint", "created_at"},
 			ColumnDirections: []descpb.IndexDescriptor_Direction{
 				descpb.IndexDescriptor_ASC,
 				descpb.IndexDescriptor_ASC,
@@ -2020,20 +2020,20 @@ var (
 		},
 		NextIndexID: 2,
 		Privileges: descpb.NewCustomSuperuserPrivilegeDescriptor(
-			descpb.SystemAllowedPrivileges[keys.ExperimentalSQLStmtStatsTableID], security.NodeUserName()),
+			descpb.SystemAllowedPrivileges[keys.SQLStmtStatsTableID], security.NodeUserName()),
 		FormatVersion:  descpb.InterleavedFormatVersion,
 		NextMutationID: 1,
 	})
 
-	ExperimentalSQLTxnStatsTable = makeTable(descpb.TableDescriptor{
-		Name:                    "experimental_sql_txn_stats",
-		ID:                      keys.ExperimentalSQLTxnStatsTableID,
+	SQLTxnStatsTable = makeTable(descpb.TableDescriptor{
+		Name:                    "sql_txn_stats",
+		ID:                      keys.SQLTxnStatsTableID,
 		ParentID:                keys.SystemDatabaseID,
 		UnexposedParentSchemaID: keys.PublicSchemaID,
 		Version:                 1,
 		Columns: []descpb.ColumnDescriptor{
 			{Name: "fingerprint", ID: 1, Type: types.Int, Nullable: false},
-			{Name: "timestamp", ID: 2, Type: types.Timestamp, Nullable: false},
+			{Name: "created_at", ID: 2, Type: types.Timestamp, Nullable: false},
 			{Name: "app_name", ID: 3, Type: types.String, Nullable: false},
 			{Name: "statement_ids", ID: 4, Type: types.IntArray, Nullable: false},
 			{Name: "count", ID: 5, Type: types.Int, Nullable: false},
@@ -2070,7 +2070,7 @@ var (
 				ID:   0,
 				ColumnNames: []string{
 					"fingerprint",
-					"timestamp",
+					"created_at",
 					"app_name",
 					"statement_ids",
 					"count",
@@ -2110,7 +2110,7 @@ var (
 			Name:        tabledesc.PrimaryKeyIndexName,
 			ID:          1,
 			Unique:      true,
-			ColumnNames: []string{"fingerprint", "timestamp"},
+			ColumnNames: []string{"fingerprint", "created_at"},
 			ColumnDirections: []descpb.IndexDescriptor_Direction{
 				descpb.IndexDescriptor_ASC,
 				descpb.IndexDescriptor_ASC,
@@ -2120,7 +2120,7 @@ var (
 		},
 		NextIndexID: 2,
 		Privileges: descpb.NewCustomSuperuserPrivilegeDescriptor(
-			descpb.SystemAllowedPrivileges[keys.ExperimentalSQLTxnStatsTableID], security.NodeUserName()),
+			descpb.SystemAllowedPrivileges[keys.SQLTxnStatsTableID], security.NodeUserName()),
 		FormatVersion:  descpb.InterleavedFormatVersion,
 		NextMutationID: 1,
 	})
