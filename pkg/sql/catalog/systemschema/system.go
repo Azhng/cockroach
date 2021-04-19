@@ -368,12 +368,12 @@ CREATE TABLE system.join_tokens (
 
 	SQLStmtStatsTableSchema = `
 CREATE TABLE system.sql_stmt_stats (
+		app_name     STRING NOT NULL,
 	  fingerprint INT NOT NULL,
 		created_at  TIMESTAMP NOT NULL,
 
 -- add in plan_hash/plan_fingerprint here
 
-		app_name     STRING NOT NULL,
     sql_type     STRING NOT NULL,
 	  query        STRING NOT NULL,
     distsql      BOOL NOT NULL, -- compact these into a bitmap?
@@ -417,13 +417,14 @@ CREATE TABLE system.sql_stmt_stats (
     exec_max_disk_usage      FLOAT8 NOT NULL,
     exec_max_disk_usage_sd   FLOAT8 NOT NULL,
 
-    PRIMARY KEY (fingerprint, created_at)
+    PRIMARY KEY (app_name, fingerprint, created_at)
 )`
 	SQLTxnStatsTableSchema = `
 CREATE TABLE system.sql_txn_stats (
+		app_name       STRING NOT NULL,
 	  fingerprint    INT NOT NULL,
 		created_at     TIMESTAMP NOT NULL,
-		app_name       STRING NOT NULL,
+
 		statement_ids  INT[] NOT NULL,
 
 		count          INT8 NOT NULL,
@@ -456,7 +457,7 @@ CREATE TABLE system.sql_txn_stats (
 
 		stats BYTES NOT NULL,
 
-    PRIMARY KEY (fingerprint, created_at);
+    PRIMARY KEY (app_name, fingerprint, created_at);
 )`
 )
 
@@ -1908,9 +1909,9 @@ var (
 		UnexposedParentSchemaID: keys.PublicSchemaID,
 		Version:                 1,
 		Columns: []descpb.ColumnDescriptor{
-			{Name: "fingerprint", ID: 1, Type: types.Int, Nullable: false},
-			{Name: "created_at", ID: 2, Type: types.Timestamp, Nullable: false},
-			{Name: "app_name", ID: 3, Type: types.String, Nullable: false},
+			{Name: "app_name", ID: 1, Type: types.String, Nullable: false},
+			{Name: "fingerprint", ID: 2, Type: types.Int, Nullable: false},
+			{Name: "created_at", ID: 3, Type: types.Timestamp, Nullable: false},
 			{Name: "sql_type", ID: 4, Type: types.String, Nullable: false},
 			{Name: "query", ID: 5, Type: types.String, Nullable: false},
 			{Name: "distsql", ID: 6, Type: types.Bool, Nullable: false},
@@ -1957,9 +1958,9 @@ var (
 				Name: "primary",
 				ID:   0,
 				ColumnNames: []string{
+					"app_name",
 					"fingerprint",
 					"created_at",
-					"app_name",
 					"sql_type",
 					"query",
 					"distsql",
@@ -2010,12 +2011,13 @@ var (
 			Name:        tabledesc.PrimaryKeyIndexName,
 			ID:          1,
 			Unique:      true,
-			ColumnNames: []string{"fingerprint", "created_at"},
+			ColumnNames: []string{"app_name", "fingerprint", "created_at"},
 			ColumnDirections: []descpb.IndexDescriptor_Direction{
 				descpb.IndexDescriptor_ASC,
 				descpb.IndexDescriptor_ASC,
+				descpb.IndexDescriptor_ASC,
 			},
-			ColumnIDs: []descpb.ColumnID{1, 2},
+			ColumnIDs: []descpb.ColumnID{1, 2, 3},
 			Version:   descpb.EmptyArraysInInvertedIndexesVersion,
 		},
 		NextIndexID: 2,
@@ -2032,9 +2034,9 @@ var (
 		UnexposedParentSchemaID: keys.PublicSchemaID,
 		Version:                 1,
 		Columns: []descpb.ColumnDescriptor{
-			{Name: "fingerprint", ID: 1, Type: types.Int, Nullable: false},
-			{Name: "created_at", ID: 2, Type: types.Timestamp, Nullable: false},
-			{Name: "app_name", ID: 3, Type: types.String, Nullable: false},
+			{Name: "app_name", ID: 1, Type: types.String, Nullable: false},
+			{Name: "fingerprint", ID: 2, Type: types.Int, Nullable: false},
+			{Name: "created_at", ID: 3, Type: types.Timestamp, Nullable: false},
 			{Name: "statement_ids", ID: 4, Type: types.IntArray, Nullable: false},
 			{Name: "count", ID: 5, Type: types.Int, Nullable: false},
 			{Name: "max_retries", ID: 6, Type: types.Int, Nullable: false},
@@ -2069,9 +2071,9 @@ var (
 				Name: "primary",
 				ID:   0,
 				ColumnNames: []string{
+					"app_name",
 					"fingerprint",
 					"created_at",
-					"app_name",
 					"statement_ids",
 					"count",
 					"max_retries",
@@ -2110,12 +2112,13 @@ var (
 			Name:        tabledesc.PrimaryKeyIndexName,
 			ID:          1,
 			Unique:      true,
-			ColumnNames: []string{"fingerprint", "created_at"},
+			ColumnNames: []string{"app_name", "fingerprint", "created_at"},
 			ColumnDirections: []descpb.IndexDescriptor_Direction{
 				descpb.IndexDescriptor_ASC,
 				descpb.IndexDescriptor_ASC,
+				descpb.IndexDescriptor_ASC,
 			},
-			ColumnIDs: []descpb.ColumnID{1, 2},
+			ColumnIDs: []descpb.ColumnID{1, 2, 3},
 			Version:   descpb.EmptyArraysInInvertedIndexesVersion,
 		},
 		NextIndexID: 2,

@@ -366,9 +366,9 @@ func (s *Server) persistSQLStmtStats(
 	ctx context.Context, stmtStat *roachpb.CollectedStatementStatistics, txn *kv.Txn,
 ) (int64, error) {
 	fields := []string{
+		"app_name",
 		"fingerprint",
 		"created_at",
-		"app_name",
 		"sql_type",
 		"query",
 		"distsql",
@@ -413,7 +413,7 @@ func (s *Server) persistSQLStmtStats(
 	placeholders := make([]string, len(fields))
 	counter := 1
 	for idx := range fields {
-		if idx == 1 {
+		if idx == 2 {
 			//placeholders[idx] = "clock_timestamp()"
 			placeholders[idx] = "current_timestamp()"
 		} else {
@@ -433,7 +433,7 @@ func (s *Server) persistSQLStmtStats(
 	num, err := s.cfg.InternalExecutor.ExecEx(ctx, "flush-sql-stmt-stats", txn,
 		sessiondata.NodeUserSessionDataOverride,
 		stmt,
-		int64(stmtStat.ID), stmtStat.Key.App, stmtStat.Stats.SQLType, stmtStat.Key.Query,
+		stmtStat.Key.App, int64(stmtStat.ID), stmtStat.Stats.SQLType, stmtStat.Key.Query,
 		stmtStat.Key.DistSQL, stmtStat.Key.Failed, stmtStat.Key.Opt, stmtStat.Key.ImplicitTxn, stmtStat.Key.Vec,
 		stmtStat.Key.FullScan, stmtStat.Stats.Count, stmtStat.Stats.FirstAttemptCount, stmtStat.Stats.MaxRetries,
 		stmtStat.Stats.NumRows.Mean, stmtStat.Stats.NumRows.SquaredDiffs,
@@ -453,7 +453,7 @@ func (s *Server) persistSQLStmtStats(
 		bytes)
 
 	if err != nil {
-		return 0, errors.Errorf("insertion failed, fingerprint: %v, error: %v", stmtStat.ID, err)
+		return 0, errors.Errorf("stmt stats insertion failed, fingerprint: %v, error: %v", stmtStat.ID, err)
 	}
 	if num != 1 {
 		return 0, errors.Errorf("expected inserting 1 row, but found: %d", num)
@@ -470,9 +470,9 @@ func (s *Server) persistSQLTxnStats(
 	txn *kv.Txn,
 ) (int64, error) {
 	fields := []string{
+		"app_name",
 		"fingerprint",
 		"created_at",
-		"app_name",
 		"statement_ids",
 		"count",
 		"max_retries",
@@ -505,7 +505,7 @@ func (s *Server) persistSQLTxnStats(
 	placeholders := make([]string, len(fields))
 	counter := 1
 	for idx := range fields {
-		if idx == 1 {
+		if idx == 2 {
 			//placeholders[idx] = "clock_timestamp()"
 			placeholders[idx] = "current_timestamp()"
 		} else {
@@ -531,7 +531,7 @@ func (s *Server) persistSQLTxnStats(
 	num, err := s.cfg.InternalExecutor.ExecEx(ctx, "flush-sql-txn-stats", txn,
 		sessiondata.NodeUserSessionDataOverride,
 		stmt,
-		int64(transactionKey), txnStat.App, stmtIDsStr,
+		txnStat.App, int64(transactionKey), stmtIDsStr,
 		txnStat.Stats.Count, txnStat.Stats.MaxRetries,
 		txnStat.Stats.NumRows.Mean, txnStat.Stats.NumRows.SquaredDiffs,
 		txnStat.Stats.ServiceLat.Mean, txnStat.Stats.ServiceLat.SquaredDiffs,
@@ -548,7 +548,7 @@ func (s *Server) persistSQLTxnStats(
 		bytes)
 
 	if err != nil {
-		return 0, err
+		return 0, errors.Errorf("txn stats insertion failed, fingerprint %d: %s", transactionKey, err)
 	}
 	if num != 1 {
 		return 0, errors.Errorf("expected inserting 1 row, but found: %d", num)
