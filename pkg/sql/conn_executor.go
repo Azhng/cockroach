@@ -677,83 +677,101 @@ func (s *Server) removeExistingSQLStatsInTimeRange(
 	return nil
 }
 
+// TODO(@azhng): prototype code
+func (s *Server) aggPersistedStatsIntoMemory(ctx context.Context, txn *kv.Txn) error {
+	persistedSQLStats, err := s.fetchPersistedSQLStats(ctx, time.Minute*5, txn)
+
+	if err != nil {
+		return errors.Errorf("unable to fetch persisted stats within past 5 minutes: %v", err)
+	}
+
+	s.sqlStats.Lock()
+	for app, persistedAppStat := range persistedSQLStats.apps {
+		if appStat, ok := s.sqlStats.apps[app]; ok {
+			appStat.Add(persistedAppStat)
+		} else {
+			// TODO(@azhng): is deep copy required here?
+			s.sqlStats.apps[app] = persistedAppStat
+		}
+	}
+	s.sqlStats.Unlock()
+
+	return nil
+}
+
+// TODO(@azhng): prototype code
+func (s *Server) persistSQLStats(ctx context.Context, txn *kv.Txn) (int64, error) {
+	stmtStatsSize := int64(0)
+	txnStatsSize := int64(0)
+
+	statementStats := s.GetUnscrubbedStmtStats()
+
+	// Manually collect transaction stats.
+	collectedTxnKeys := make([]txnKey, 0)
+	collectedTransactionStats := make([]roachpb.CollectedTransactionStatistics, 0)
+	s.sqlStats.Lock()
+
+	{
+		for appName, app := range s.sqlStats.apps {
+			app.Lock()
+			{
+				for transactionKey, transactionStat := range app.txns {
+					transactionStat.mu.Lock()
+					data := transactionStat.mu.data
+					transactionStat.mu.Unlock()
+					payload := roachpb.CollectedTransactionStatistics{
+						StatementIDs: transactionStat.statementIDs,
+						App:          appName,
+						Stats:        data,
+					}
+					collectedTransactionStats = append(collectedTransactionStats, payload)
+					collectedTxnKeys = append(collectedTxnKeys, transactionKey)
+				}
+			}
+			app.Unlock()
+		}
+	}
+	s.sqlStats.Unlock()
+
+	for _, statementStat := range statementStats {
+		bytesWritten, err := s.persistSQLStmtStats(ctx, &statementStat, txn)
+		if err != nil {
+			return 0, err
+		}
+		stmtStatsSize += bytesWritten
+	}
+
+	for idx, transactionKey := range collectedTxnKeys {
+		txnStat := collectedTransactionStats[idx]
+		bytesWritten, err := s.persistSQLTxnStats(ctx, transactionKey, &txnStat, txn)
+		if err != nil {
+			return 0, err
+		}
+		txnStatsSize += bytesWritten
+	}
+	return txnStatsSize + stmtStatsSize, nil
+}
+
 // TODO(azhng): prototype code
 func (s *Server) PersistSQLStats(ctx context.Context) (int64, error) {
-	stmtStatsSize := int64(0)
-	stmtEntryCnt := 0
-	txnStatsSize := int64(0)
-	txnEntryCnt := 0
+	bytesWritten := int64(0)
 
 	err := s.cfg.DB.Txn(ctx, func(ctx context.Context, txn *kv.Txn) error {
-		persistedSQLStats, err := s.fetchPersistedSQLStats(ctx, time.Minute*5, txn)
-
+		err := s.aggPersistedStatsIntoMemory(ctx, txn)
 		if err != nil {
-			return errors.Errorf("unable to fetch persisted stats within past 5 minutes: %v", err)
+			return errors.Errorf("unable to aggregate persisted stats into memory: %v", err)
 		}
-
-		s.sqlStats.Lock()
-		for app, persistedAppStat := range persistedSQLStats.apps {
-			if appStat, ok := s.sqlStats.apps[app]; ok {
-				appStat.Add(persistedAppStat)
-			} else {
-				// TODO(@azhng): is deep copy required here?
-				s.sqlStats.apps[app] = persistedAppStat
-			}
-		}
-		s.sqlStats.Unlock()
 
 		err = s.removeExistingSQLStatsInTimeRange(ctx, time.Minute*5, txn)
 		if err != nil {
 			return errors.Errorf("unable to delete persisted stats within past 5 minutes: %v", err)
 		}
 
-		statementStats := s.GetUnscrubbedStmtStats()
-		stmtEntryCnt = len(statementStats)
-
-		// Manually collect transaction stats.
-		collectedTxnKeys := make([]txnKey, 0)
-		collectedTransactionStats := make([]roachpb.CollectedTransactionStatistics, 0)
-		s.sqlStats.Lock()
-
-		{
-			for appName, app := range s.sqlStats.apps {
-				app.Lock()
-				txnEntryCnt += len(app.txns)
-				{
-					for transactionKey, transactionStat := range app.txns {
-						transactionStat.mu.Lock()
-						data := transactionStat.mu.data
-						transactionStat.mu.Unlock()
-						payload := roachpb.CollectedTransactionStatistics{
-							StatementIDs: transactionStat.statementIDs,
-							App:          appName,
-							Stats:        data,
-						}
-						collectedTransactionStats = append(collectedTransactionStats, payload)
-						collectedTxnKeys = append(collectedTxnKeys, transactionKey)
-					}
-				}
-				app.Unlock()
-			}
-		}
-		s.sqlStats.Unlock()
-
-		for _, statementStat := range statementStats {
-			bytesWritten, err := s.persistSQLStmtStats(ctx, &statementStat, txn)
-			if err != nil {
-				return err
-			}
-			stmtStatsSize += bytesWritten
+		bytesWritten, err = s.persistSQLStats(ctx, txn)
+		if err != nil {
+			return errors.Errorf("unable to persist stats to system tables: %v", err)
 		}
 
-		for idx, transactionKey := range collectedTxnKeys {
-			txnStat := collectedTransactionStats[idx]
-			bytesWritten, err := s.persistSQLTxnStats(ctx, transactionKey, &txnStat, txn)
-			if err != nil {
-				return err
-			}
-			txnStatsSize += bytesWritten
-		}
 		return nil
 	})
 
@@ -761,10 +779,7 @@ func (s *Server) PersistSQLStats(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 
-	log.Infof(ctx, "MARKER txn size: %d bytes, txnEntryCnt %d", txnStatsSize, txnEntryCnt)
-	log.Infof(ctx, "MARKER total size: %d bytes, totalEntryCnt %d", txnStatsSize+stmtStatsSize, txnEntryCnt+stmtEntryCnt)
-
-	return txnStatsSize + stmtStatsSize, nil
+	return bytesWritten, nil
 }
 
 func (s *Server) FlushSQLStats(ctx context.Context) (int64, error) {
@@ -1295,6 +1310,13 @@ var MaxSQLStatPersist = settings.RegisterDurationSetting(
 	time.Hour*2, // 2 x diagnostics.sql_stat_reset.interval
 	settings.NonNegativeDurationWithMaximum(time.Hour*24),
 ).WithPublic()
+
+// TODO(@azhng): prototype code
+var MaxPersistedSQLStatRows = settings.RegisterIntSetting(
+	"diagnostics.max_persisted_sql_stat_rows",
+	"max number of rows we persist in sql stats tables",
+	1000,
+)
 
 // PeriodicallyClearSQLStats spawns a loop to reset stats based on the setting
 // of a given duration settings variable. We take in a function to actually do
