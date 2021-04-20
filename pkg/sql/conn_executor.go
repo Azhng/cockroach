@@ -338,7 +338,7 @@ func makeMetrics(internal bool) Metrics {
 
 // Start starts the Server's background processing.
 func (s *Server) Start(ctx context.Context, stopper *stop.Stopper) {
-	// TODO(@azhng): this is not ideal, we want to properly handle errors
+	// TODO(azhng): this is not ideal, we want to properly handle errors
 	sqlStatsFlushAdapter := func(ctx context.Context) {
 		_, _ = s.FlushSQLStats(ctx)
 	}
@@ -677,7 +677,7 @@ func (s *Server) removeExistingSQLStatsInTimeRange(
 	return nil
 }
 
-// TODO(@azhng): prototype code
+// TODO(azhng): prototype code
 func (s *Server) aggPersistedStatsIntoMemory(ctx context.Context, txn *kv.Txn) error {
 	persistedSQLStats, err := s.fetchPersistedSQLStats(ctx, time.Minute*5, txn)
 
@@ -690,7 +690,7 @@ func (s *Server) aggPersistedStatsIntoMemory(ctx context.Context, txn *kv.Txn) e
 		if appStat, ok := s.sqlStats.apps[app]; ok {
 			appStat.Add(persistedAppStat)
 		} else {
-			// TODO(@azhng): is deep copy required here?
+			// TODO(azhng): is deep copy required here?
 			s.sqlStats.apps[app] = persistedAppStat
 		}
 	}
@@ -699,7 +699,7 @@ func (s *Server) aggPersistedStatsIntoMemory(ctx context.Context, txn *kv.Txn) e
 	return nil
 }
 
-// TODO(@azhng): prototype code
+// TODO(azhng): prototype code
 func (s *Server) persistSQLStats(ctx context.Context, txn *kv.Txn) (int64, error) {
 	stmtStatsSize := int64(0)
 	txnStatsSize := int64(0)
@@ -753,6 +753,68 @@ func (s *Server) persistSQLStats(ctx context.Context, txn *kv.Txn) (int64, error
 }
 
 // TODO(azhng): prototype code
+func (s *Server) ensurePersistedSQLStatsTableSize(ctx context.Context, txn *kv.Txn) error {
+	tableSizeLimit := MaxPersistedSQLStatRows.Get(&s.cfg.Settings.SV)
+
+	stmt := "SELECT COUNT(*) FROM %s"
+
+	// Prune sql-stmt-stats
+	row, err := s.cfg.InternalExecutor.QueryRowEx(ctx, "count-sql-stmt-stats-rows", txn,
+		sessiondata.NodeUserSessionDataOverride,
+		fmt.Sprintf(stmt, "system.sql_stmt_stats"))
+
+	if err != nil {
+		return err
+	}
+
+	if row == nil {
+		return errors.Errorf("unable to fetch table size for system.sql_stmt_stats")
+	}
+
+	cnt := int64(tree.MustBeDInt(row[0]))
+	if cnt > tableSizeLimit {
+		pruneStmt := `DELETE FROM system.sql_stmt_stats
+										WHERE (app_name, fingerprint, created_at) IN
+											(SELECT app_name, fingerprint, created_at
+											 FROM system.sql_stmt_stats
+											 ORDER BY created_at
+											 LIMIT %d)`
+		_, err = s.cfg.InternalExecutor.ExecEx(ctx, "prune-stale-sql-stmt-stats", txn,
+			sessiondata.NodeUserSessionDataOverride, fmt.Sprintf(pruneStmt, cnt-tableSizeLimit))
+		if err != nil {
+			return err
+		}
+	}
+
+	// Prune sql-txn-stats
+	row, err = s.cfg.InternalExecutor.QueryRowEx(ctx, "count-sql-txn-stats-rows", txn,
+		sessiondata.NodeUserSessionDataOverride,
+		fmt.Sprintf(stmt, "system.sql_txn_stats"))
+
+	if err != nil {
+		return err
+	}
+
+	if row == nil {
+		return errors.Errorf("unable to fetch table size for system.sql_txn_stats")
+	}
+
+	cnt = int64(tree.MustBeDInt(row[0]))
+	if cnt > tableSizeLimit {
+		pruneStmt := `DELETE FROM system.sql_txn_stats
+										WHERE (app_name, fingerprint, created_at) IN
+											(SELECT app_name, fingerprint, created_at FROM system.sql_txn_stats LIMIT %d)`
+		_, err = s.cfg.InternalExecutor.ExecEx(ctx, "prune-stale-sql-txn-stats", txn,
+			sessiondata.NodeUserSessionDataOverride, fmt.Sprintf(pruneStmt, cnt-tableSizeLimit))
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// TODO(azhng): prototype code
 func (s *Server) PersistSQLStats(ctx context.Context) (int64, error) {
 	bytesWritten := int64(0)
 
@@ -770,6 +832,11 @@ func (s *Server) PersistSQLStats(ctx context.Context) (int64, error) {
 		bytesWritten, err = s.persistSQLStats(ctx, txn)
 		if err != nil {
 			return errors.Errorf("unable to persist stats to system tables: %v", err)
+		}
+
+		err = s.ensurePersistedSQLStatsTableSize(ctx, txn)
+		if err != nil {
+			return errors.Errorf("failed to prune stale stats: %v", err)
 		}
 
 		return nil
@@ -864,7 +931,7 @@ func (s *Server) GetExecutorConfig() *ExecutorConfig {
 	return s.cfg
 }
 
-// TODO(@azhng): seriously we need generics here v
+// TODO(azhng): seriously we need generics here v
 // GetPersistedTxnStats returns the transaction statistics stored in system table.
 func (s *Server) GetPersistedTxnStats(
 	ctx context.Context, duration *time.Duration, txn *kv.Txn,
@@ -1311,7 +1378,7 @@ var MaxSQLStatPersist = settings.RegisterDurationSetting(
 	settings.NonNegativeDurationWithMaximum(time.Hour*24),
 ).WithPublic()
 
-// TODO(@azhng): prototype code
+// TODO(azhng): prototype code
 var MaxPersistedSQLStatRows = settings.RegisterIntSetting(
 	"diagnostics.max_persisted_sql_stat_rows",
 	"max number of rows we persist in sql stats tables",
