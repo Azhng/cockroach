@@ -320,6 +320,9 @@ type ExecutionStats struct {
 
 	// Nodes on which this operator was executed.
 	Nodes []string
+
+	// RangeIDs TODO(azhng): huh ?, ok now figure out how to populate this
+	RangeIDs []string
 }
 
 // BuildPlanForExplainFn builds an execution plan against the given

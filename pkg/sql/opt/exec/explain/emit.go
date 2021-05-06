@@ -335,6 +335,12 @@ func (e *emitter) emitNodeAttributes(n *Node) error {
 		if len(s.Nodes) > 0 {
 			e.ob.AddRedactableField(RedactNodes, "cluster nodes", strings.Join(s.Nodes, ", "))
 		}
+		// TODO(azhng): WIP
+		//if len(s.RangeIDs) > 0 {
+		//	e.ob.AddRedactableField(RedactNodes, "ranges", strings.Join(s.RangeIDs, ","))
+		//}
+		e.ob.AddRedactableField(RedactNodes, "ranges", strings.Join(s.RangeIDs, ","))
+		// TODO(azhng): WIP
 		if s.RowCount.HasValue() {
 			e.ob.AddField("actual row count", humanizeutil.Count(s.RowCount.Value()))
 		}
