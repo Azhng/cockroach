@@ -1,0 +1,24 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "sscluster",
+    srcs = [
+        "cluster_settings.go",
+        "metrics.go",
+        "sscluster_provider.go",
+        "sscluster_writer.go",
+    ],
+    importpath = "github.com/cockroachdb/cockroach/pkg/sql/sqlstats/sscluster",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/roachpb",
+        "//pkg/settings",
+        "//pkg/sql/execstats",
+        "//pkg/sql/sqlstats",
+        "//pkg/sql/sqlstats/sslocal",
+        "//pkg/sql/sqlstats/ssmemstorage",
+        "//pkg/sql/sqlutil",
+        "//pkg/util/stop",
+        "//pkg/util/syncutil",
+    ],
+)

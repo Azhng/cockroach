@@ -21,6 +21,10 @@ import (
 	"github.com/cockroachdb/errors"
 )
 
+var ErrMemoryPressure = errors.New("insufficient memory")
+
+var ErrFingerprintLimitReached = errors.New("fingerprint limit reached")
+
 var _ sqlstats.Writer = &Container{}
 
 // RecordStatement implements sqlstats.Writer interface.
@@ -59,7 +63,7 @@ func (s *Container) RecordStatement(
 	// This means we have reached the limit of unique fingerprintstats. We don't
 	// record anything and abort the operation.
 	if throttled {
-		return stmtFingerprintID, errors.New("unique fingerprint limit has been reached")
+		return stmtFingerprintID, ErrFingerprintLimitReached
 	}
 
 	// This statement was below the latency threshold or sql stats aren't being
@@ -118,7 +122,7 @@ func (s *Container) RecordStatement(
 		// memory budget, delete the entry that we just created and report the error.
 		if err := s.mu.acc.Grow(ctx, estimatedMemoryAllocBytes); err != nil {
 			delete(s.mu.stmts, statementKey)
-			return stats.ID, err
+			return stats.ID, ErrMemoryPressure
 		}
 	}
 
@@ -169,7 +173,7 @@ func (s *Container) RecordTransaction(
 	stats, created, throttled := s.getStatsForTxnWithKey(key, value.StatementFingerprintIDs, true /* createIfNonexistent */)
 
 	if throttled {
-		return errors.New("unique fingerprint limit has been reached")
+		return ErrFingerprintLimitReached
 	}
 
 	// Collect the per-transaction statistics.
@@ -188,7 +192,7 @@ func (s *Container) RecordTransaction(
 		if err := s.mu.acc.Grow(ctx, estimatedMemAllocBytes); err != nil {
 			delete(s.mu.txns, key)
 			s.mu.Unlock()
-			return err
+			return ErrMemoryPressure
 		}
 		s.mu.Unlock()
 	}

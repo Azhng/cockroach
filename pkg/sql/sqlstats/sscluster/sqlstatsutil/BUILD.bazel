@@ -1,0 +1,85 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "utils",
+    srcs = [
+        "encoding_utils.go",
+        "json_encoding.go",
+    ],
+    importpath = "github.com/cockroachdb/cockroach/pkg/sql/sqlstats/sscluster/utils",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/roachpb",
+        "//pkg/sql/sqlstats",
+        "//pkg/util",
+        "//pkg/util/encoding",
+    ],
+)
+
+go_test(
+    name = "utils_test",
+    srcs = [
+        "json_encoding_test.go",
+        "main_test.go",
+    ],
+    deps = [
+        ":utils",
+        "//pkg/base",
+        "//pkg/roachpb",
+        "//pkg/security",
+        "//pkg/security/securitytest",
+        "//pkg/server",
+        "//pkg/testutils/serverutils",
+        "//pkg/util/json",
+        "//pkg/util/leaktest",
+        "//pkg/util/log",
+        "@com_github_stretchr_testify//require",
+    ],
+)
+
+go_library(
+    name = "sqlstatsutil",
+    srcs = [
+        "json_decoding.go",
+        "json_encoding.go",
+        "query_builder.go",
+    ],
+    importpath = "github.com/cockroachdb/cockroach/pkg/sql/sqlstats/sscluster/sqlstatsutil",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/roachpb",
+        "//pkg/util",
+        "//pkg/util/encoding",
+        "//pkg/util/json",
+        "@com_github_cockroachdb_apd_v2//:apd",
+        "@com_github_cockroachdb_errors//:errors",
+        "@com_github_pkg_errors//:errors",
+    ],
+)
+
+go_test(
+    name = "sqlstatsutil_test",
+    srcs = [
+        "json_encoding_test.go",
+        "main_test.go",
+        "query_builder_test.go",
+    ],
+    deps = [
+        ":sqlstatsutil",
+        "//pkg/base",
+        "//pkg/roachpb",
+        "//pkg/security",
+        "//pkg/security/securitytest",
+        "//pkg/server",
+        "//pkg/sql/sem/tree",
+        "//pkg/sql/sessiondata",
+        "//pkg/sql/sqlutil",
+        "//pkg/testutils/serverutils",
+        "//pkg/util/encoding",
+        "//pkg/util/json",
+        "//pkg/util/leaktest",
+        "//pkg/util/log",
+        "//pkg/util/timeutil",
+        "@com_github_stretchr_testify//require",
+    ],
+)
