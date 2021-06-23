@@ -19,13 +19,15 @@ import (
 )
 
 // TODO(azhng): wip: docs: output of this file
+// These two queries are build during the initialization time and should not be
+// modified during runtime.
 var (
-	StmtStatsInertQuery string
-	TxnStatsInsertQuery string
+	StmtStatsInsertQuery string
+	TxnStatsInsertQuery  string
 )
 
 func init() {
-	StmtStatsInertQuery = buildStmtInsertQuery()
+	StmtStatsInsertQuery = buildStmtInsertQuery()
 	TxnStatsInsertQuery = buildTxnInsertQuery()
 }
 
@@ -40,6 +42,9 @@ const (
 	// clause.
 	stmtStatsConflictClause = "(crdb_internal_aggregated_ts_app_name_fingerprint_id_node_id_plan_hash_shard_8, aggregated_ts, fingerprint_id, app_name, plan_hash, node_id)"
 	txnStatsConflictClause  = "(crdb_internal_aggregated_ts_app_name_fingerprint_id_node_id_shard_8, aggregated_ts, fingerprint_id, app_name, node_id)"
+
+	stmtStatsPlaceholder = "($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"
+	txnStatsPlaceholder  = "($1, $2, $3, $4, $5, $6, $7, $8)"
 
 	// [1]: table name
 	// [2]: statistics attribute
@@ -284,19 +289,17 @@ var (
 func buildStmtInsertQuery() string {
 	stmtStatsMergeClause := buildStmtStatsMergeClause()
 	execStatsMergeClause := buildExecStatsMergeClause(stmtStatsTable)
-	placeHolders := "($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"
 
 	return fmt.Sprintf(statsInsertQueryTemplate, stmtStatsTable, stmtStatsMergeClause,
-		execStatsMergeClause, placeHolders, stmtStatsConflictClause)
+		execStatsMergeClause, stmtStatsPlaceholder, stmtStatsConflictClause)
 }
 
 func buildTxnInsertQuery() string {
 	txnStatsMergeClause := buildTxnStatsMergeClause()
 	execStatsMergeClause := buildExecStatsMergeClause(txnStatsTable)
-	placeHolders := "($1, $2, $3, $4, $5, $6, $7, $8, $9)"
 
 	return fmt.Sprintf(statsInsertQueryTemplate, txnStatsTable, txnStatsMergeClause,
-		execStatsMergeClause, placeHolders, txnStatsConflictClause)
+		execStatsMergeClause, txnStatsPlaceholder, txnStatsConflictClause)
 }
 
 func buildTxnStatsMergeClause() string {

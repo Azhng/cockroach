@@ -13,6 +13,7 @@ package sqlstatsutil_test
 import (
 	"context"
 	gosql "database/sql"
+	"fmt"
 	"testing"
 	"time"
 
@@ -30,19 +31,25 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/util/log"
 	"github.com/cockroachdb/cockroach/pkg/util/timeutil"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/exp/rand"
 )
+
+func encodeFingerprintID(id uint64) []byte {
+	result := make([]byte, 0, 8)
+	return encoding.EncodeUint64Ascending(result, id)
+}
 
 func getStmtStatsArgs(
 	t *testing.T, stmtStats *roachpb.CollectedStatementStatistics,
 ) (fingerprintID []byte, metadata tree.Datum, stats *tree.DJSON, plan []byte) {
-	fingerprintID = make([]byte, 8)
-	fingerprintID = encoding.EncodeUint64Ascending(fingerprintID, uint64(stmtStats.ID))
+	fingerprintID = encodeFingerprintID(uint64(stmtStats.ID))
 
 	serializedStmtStats, err := sqlstatsutil.BuildStmtStatisticsJSON(stmtStats)
 	require.NoError(t, err)
 
 	metadataJSON, err := sqlstatsutil.BuildStmtMetadataJSON(stmtStats)
 	require.NoError(t, err)
+
 	metadata = tree.NewDJSON(metadataJSON)
 	stats = tree.NewDJSON(serializedStmtStats)
 
@@ -52,30 +59,79 @@ func getStmtStatsArgs(
 	return fingerprintID, metadata, stats, plan
 }
 
-func getInsertedStmtStats(
-	t *testing.T, sqlConn *gosql.DB, fingerprintID []byte, appName string,
-) roachpb.CollectedStatementStatistics {
-	rows, _ := sqlConn.Query(`
+func getTxnStatsArgs(
+	t *testing.T, dummyFingerprintID uint64, txnStats *roachpb.CollectedTransactionStatistics,
+) (fingerprintID []byte, metadata tree.Datum, stats *tree.DJSON) {
+	// Use a dummy txnFingerprintID since it is not available within the protobuf.
+	fingerprintID = encodeFingerprintID(dummyFingerprintID)
+
+	serializedTxnStats, err := sqlstatsutil.BuildTxnStatisticsJSON(txnStats)
+	require.NoError(t, err)
+
+	metadataJSON := sqlstatsutil.BuildTxnMetadataJSON(txnStats)
+	require.NoError(t, err)
+
+	metadata = tree.NewDJSON(metadataJSON)
+	stats = tree.NewDJSON(serializedTxnStats)
+
+	return fingerprintID, metadata, stats
+}
+
+func getInsertedData(
+	t *testing.T, tableName string, sqlConn *gosql.DB, fingerprintID []byte, appName string,
+) (count int64, stats json.JSON, metadata json.JSON) {
+	rows, _ := sqlConn.Query(fmt.Sprintf(`
 SELECT
     count,
     statistics,
 		metadata
 FROM
-    system.statement_statistics
+    %s
 WHERE fingerprint_id = $1
-    AND app_name = $2`, fingerprintID, appName)
+    AND app_name = $2`, tableName), fingerprintID, appName)
 
 	require.True(t, rows.Next(), "expecting rows from the result, but found none")
 
-	var count int64
 	var statsRaw, metadataRaw []byte
 	err := rows.Scan(&count, &statsRaw, &metadataRaw)
 	require.NoError(t, err)
 
-	stats, err := json.ParseJSON(string(statsRaw))
+	stats, err = json.ParseJSON(string(statsRaw))
 	require.NoError(t, err)
-	metadata, err := json.ParseJSON(string(metadataRaw))
+	metadata, err = json.ParseJSON(string(metadataRaw))
 	require.NoError(t, err)
+
+	require.False(t, rows.Next(), "expected exactly one row, but found more")
+	err = rows.Close()
+	require.NoError(t, err)
+
+	return count, stats, metadata
+}
+
+func getInsertedTxnStats(
+	t *testing.T, sqlConn *gosql.DB, fingerprintID []byte, appName string,
+) roachpb.CollectedTransactionStatistics {
+	count, stats, metadata :=
+		getInsertedData(t, "system.transaction_statistics", sqlConn, fingerprintID, appName)
+
+	actualInsertedData := roachpb.CollectedTransactionStatistics{
+		App: appName,
+		Stats: roachpb.TransactionStatistics{
+			Count: count,
+		},
+	}
+
+	err := sqlstatsutil.UnmarshalTxnStatsJSON(stats, metadata, &actualInsertedData)
+	require.NoError(t, err)
+
+	return actualInsertedData
+}
+
+func getInsertedStmtStats(
+	t *testing.T, sqlConn *gosql.DB, fingerprintID []byte, appName string,
+) roachpb.CollectedStatementStatistics {
+	count, stats, metadata :=
+		getInsertedData(t, "system.statement_statistics", sqlConn, fingerprintID, appName)
 
 	actualInsertedData := roachpb.CollectedStatementStatistics{
 		Key: roachpb.StatementStatisticsKey{
@@ -86,11 +142,7 @@ WHERE fingerprint_id = $1
 		},
 	}
 
-	err = sqlstatsutil.UnmarshalStmtStatsJSON(stats, metadata, &actualInsertedData)
-	require.NoError(t, err)
-
-	require.False(t, rows.Next(), "expected exactly one row, but found more")
-	err = rows.Close()
+	err := sqlstatsutil.UnmarshalStmtStatsJSON(stats, metadata, &actualInsertedData)
 	require.NoError(t, err)
 
 	return actualInsertedData
@@ -132,7 +184,7 @@ func TestInsertionQueries(t *testing.T) {
 				sessiondata.InternalExecutorOverride{
 					User: security.NodeUserName(),
 				},
-				sqlstatsutil.StmtStatsInertQuery,
+				sqlstatsutil.StmtStatsInsertQuery,
 				timeutil.Unix(0 /* sec */, 0 /* nsec */), // aggregated_ts
 				fingerprintID,                            // fingerprint_ID
 				0,                                        // plan_id
@@ -188,7 +240,7 @@ func TestInsertionQueries(t *testing.T) {
 				sessiondata.InternalExecutorOverride{
 					User: security.NodeUserName(),
 				},
-				sqlstatsutil.StmtStatsInertQuery,
+				sqlstatsutil.StmtStatsInsertQuery,
 				timeutil.Unix(0 /* sec */, 0 /* nsec */), // aggregated_ts
 				fingerprintID,                            // fingerprint_id
 				0,                                        // plan_id
@@ -243,7 +295,7 @@ func TestInsertionQueries(t *testing.T) {
 				sessiondata.InternalExecutorOverride{
 					User: security.NodeUserName(),
 				},
-				sqlstatsutil.StmtStatsInertQuery,
+				sqlstatsutil.StmtStatsInsertQuery,
 				timeutil.Unix(0 /* sec */, 0 /* nsec */), // aggregated_ts
 				fingerprintID,                            // fingerprint_id
 				0,                                        // plan_id
@@ -286,7 +338,7 @@ func TestInsertionQueries(t *testing.T) {
 				sessiondata.InternalExecutorOverride{
 					User: security.NodeUserName(),
 				},
-				sqlstatsutil.StmtStatsInertQuery,
+				sqlstatsutil.StmtStatsInsertQuery,
 				timeutil.Unix(0 /* sec */, 0 /* nsec */), // aggregated_ts
 				fingerprintID,                            // fingerprint_id
 				0,                                        // plan_id
@@ -307,8 +359,40 @@ func TestInsertionQueries(t *testing.T) {
 		})
 	})
 
-	// insertTxnData := roachpb.CollectedTransactionStatistics{}
 	t.Run("transaction", func(*testing.T) {
+		insertTxnData := roachpb.CollectedTransactionStatistics{}
+		internalEx := srv.InternalExecutor().(sqlutil.InternalExecutor)
+		dummyFingerprintID := rand.Uint64()
+
+		t.Run("initial_insert", func(t *testing.T) {
+			fingerprintID, txnStatsMetadataDatum, txnStatsDatum := getTxnStatsArgs(t, dummyFingerprintID, &insertTxnData)
+			rowsAffected, err := internalEx.ExecEx(
+				ctx,
+				"insert-txn-stats",
+				nil, /* txn */
+				sessiondata.InternalExecutorOverride{
+					User: security.NodeUserName(),
+				},
+				sqlstatsutil.TxnStatsInsertQuery,
+				timeutil.Unix(0 /* sec */, 0 /* nsec */), // aggregated_ts
+				fingerprintID,                            // fingerprint_ID
+				insertTxnData.App,                        // app_name
+				1,                                        // node_id
+				insertTxnData.Stats.Count,                // count
+				time.Hour,                                // agg_internal
+				txnStatsMetadataDatum,                    // metadata
+				txnStatsDatum,                            // statistics
+			)
+
+			require.NoError(t, err)
+			require.Equal(t, 1 /* expected */, rowsAffected)
+
+			actualInsertedData := getInsertedTxnStats(t, sqlConn, fingerprintID, insertTxnData.App)
+
+			// This needs to be exactly the same since we haven't done any floating
+			// point arithmetic yet.
+			require.Equal(t, insertTxnData, actualInsertedData)
+		})
 
 	})
 }
