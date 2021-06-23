@@ -187,6 +187,22 @@ func (s *StatementStatistics) AlmostEqual(other *StatementStatistics, eps float6
 	// messages depends on the range cache state).
 }
 
+// AlmostEqual compares two TransactionStatistics and their contained NumericStats
+// objects within an window of size eps, ExecStats are ignored.
+func (s *TransactionStatistics) AlmostEqual(other *TransactionStatistics, eps float64) bool {
+	return s.Count == other.Count &&
+		s.MaxRetries == other.MaxRetries &&
+		s.NumRows.AlmostEqual(other.NumRows, eps) &&
+		s.ServiceLat.AlmostEqual(other.ServiceLat, eps) &&
+		s.RetryLat.AlmostEqual(other.RetryLat, eps) &&
+		s.CommitLat.AlmostEqual(other.CommitLat, eps) &&
+		s.BytesRead.AlmostEqual(other.BytesRead, eps) &&
+		s.RowsRead.AlmostEqual(other.RowsRead, eps)
+	// s.ExecStats are deliberately ignored since they are subject to sampling
+	// probability and are not fully deterministic (e.g. the number of network
+	// messages depends on the range cache state).
+}
+
 // Add combines other into this ExecStats.
 func (s *ExecStats) Add(other ExecStats) {
 	// Execution stats collected using a sampling approach.

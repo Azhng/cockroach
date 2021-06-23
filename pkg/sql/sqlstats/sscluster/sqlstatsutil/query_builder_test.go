@@ -333,7 +333,7 @@ func TestInsertionQueries(t *testing.T) {
 
 			rowsAffected, err := internalEx.ExecEx(
 				ctx,
-				"subsequent-update",
+				"different-stats-insert",
 				nil, /* txn */
 				sessiondata.InternalExecutorOverride{
 					User: security.NodeUserName(),
@@ -359,8 +359,12 @@ func TestInsertionQueries(t *testing.T) {
 		})
 	})
 
-	t.Run("transaction", func(*testing.T) {
-		insertTxnData := roachpb.CollectedTransactionStatistics{}
+	t.Run("transaction", func(t *testing.T) {
+		insertTxnData := roachpb.CollectedTransactionStatistics{
+			StatementFingerprintIDs: []roachpb.StmtFingerprintID{
+				1, 100, 12340, 542523412,
+			},
+		}
 		internalEx := srv.InternalExecutor().(sqlutil.InternalExecutor)
 		dummyFingerprintID := rand.Uint64()
 
@@ -394,5 +398,140 @@ func TestInsertionQueries(t *testing.T) {
 			require.Equal(t, insertTxnData, actualInsertedData)
 		})
 
+		expectedTxnStats := roachpb.CollectedTransactionStatistics{
+			StatementFingerprintIDs: insertTxnData.StatementFingerprintIDs,
+		}
+
+		t.Run("initial_update", func(t *testing.T) {
+			insertTxnData.Stats.Count = 15
+			insertTxnData.Stats.MaxRetries = 3
+
+			insertTxnData.Stats.ServiceLat.Mean = 9345.234
+			insertTxnData.Stats.ServiceLat.SquaredDiffs = 234.425123
+
+			insertTxnData.Stats.ExecStats.MaxDiskUsage.Mean = 341.452345
+			insertTxnData.Stats.ExecStats.MaxDiskUsage.SquaredDiffs = 61.231
+
+			expectedTxnStats.Stats.Add(&insertTxnData.Stats)
+
+			fingerprintID, txnStatsMetadataDatum, txnStatsDatum := getTxnStatsArgs(t, dummyFingerprintID, &insertTxnData)
+			rowsAffected, err := internalEx.ExecEx(
+				ctx,
+				"insert-txn-stats",
+				nil, /* txn */
+				sessiondata.InternalExecutorOverride{
+					User: security.NodeUserName(),
+				},
+				sqlstatsutil.TxnStatsInsertQuery,
+				timeutil.Unix(0 /* sec */, 0 /* nsec */), // aggregated_ts
+				fingerprintID,                            // fingerprint_ID
+				insertTxnData.App,                        // app_name
+				1,                                        // node_id
+				insertTxnData.Stats.Count,                // count
+				time.Hour,                                // agg_internal
+				txnStatsMetadataDatum,                    // metadata
+				txnStatsDatum,                            // statistics
+			)
+
+			require.NoError(t, err)
+			require.Equal(t, 1 /* expected */, rowsAffected)
+
+			actualInsertedData := getInsertedTxnStats(t, sqlConn, fingerprintID, insertTxnData.App)
+
+			require.Equal(t, expectedTxnStats.StatementFingerprintIDs, actualInsertedData.StatementFingerprintIDs)
+			require.Equal(t, expectedTxnStats.App, actualInsertedData.App)
+
+			epsilon := 0.000001
+			require.True(t, actualInsertedData.Stats.AlmostEqual(&expectedTxnStats.Stats, epsilon), "expected %+v\nbut found %+v", expectedTxnStats.Stats, actualInsertedData.Stats)
+			checkExecStats(t, expectedTxnStats.Stats.ExecStats, actualInsertedData.Stats.ExecStats, epsilon)
+		})
+
+		t.Run("subsequent_update", func(t *testing.T) {
+			insertTxnData.Stats.Count = 94
+			insertTxnData.Stats.MaxRetries = 58
+
+			insertTxnData.Stats.ServiceLat.Mean = 12.234
+			insertTxnData.Stats.ServiceLat.SquaredDiffs = 1.3
+
+			insertTxnData.Stats.BytesRead.Mean = 234.53
+			insertTxnData.Stats.BytesRead.SquaredDiffs = 36.234123
+
+			insertTxnData.Stats.ExecStats.MaxDiskUsage.Mean = 1.234123
+			insertTxnData.Stats.ExecStats.MaxDiskUsage.SquaredDiffs = 325.313
+
+			expectedTxnStats.Stats.Add(&insertTxnData.Stats)
+
+			fingerprintID, txnStatsMetadataDatum, txnStatsDatum := getTxnStatsArgs(t, dummyFingerprintID, &insertTxnData)
+			rowsAffected, err := internalEx.ExecEx(
+				ctx,
+				"insert-txn-stats",
+				nil, /* txn */
+				sessiondata.InternalExecutorOverride{
+					User: security.NodeUserName(),
+				},
+				sqlstatsutil.TxnStatsInsertQuery,
+				timeutil.Unix(0 /* sec */, 0 /* nsec */), // aggregated_ts
+				fingerprintID,                            // fingerprint_ID
+				insertTxnData.App,                        // app_name
+				1,                                        // node_id
+				insertTxnData.Stats.Count,                // count
+				time.Hour,                                // agg_internal
+				txnStatsMetadataDatum,                    // metadata
+				txnStatsDatum,                            // statistics
+			)
+
+			require.NoError(t, err)
+			require.Equal(t, 1 /* expected */, rowsAffected)
+
+			actualInsertedData := getInsertedTxnStats(t, sqlConn, fingerprintID, insertTxnData.App)
+
+			require.Equal(t, expectedTxnStats.StatementFingerprintIDs, actualInsertedData.StatementFingerprintIDs)
+			require.Equal(t, expectedTxnStats.App, actualInsertedData.App)
+
+			epsilon := 0.000001
+			require.True(t, actualInsertedData.Stats.AlmostEqual(&expectedTxnStats.Stats, epsilon), "expected %+v\nbut found %+v", expectedTxnStats.Stats, actualInsertedData.Stats)
+			checkExecStats(t, expectedTxnStats.Stats.ExecStats, actualInsertedData.Stats.ExecStats, epsilon)
+		})
+
+		t.Run("different_stats_insert", func(t *testing.T) {
+			differentTxnStats := roachpb.CollectedTransactionStatistics{
+				App: "different app2",
+				StatementFingerprintIDs: []roachpb.StmtFingerprintID{
+					3291, 34, 3481,
+				},
+			}
+
+			differentTxnFingerprintID := dummyFingerprintID + 1
+
+			fingerprintID, txnStatsMetadataDatum, txnStatsDatum := getTxnStatsArgs(t, differentTxnFingerprintID, &differentTxnStats)
+			rowsAffected, err := internalEx.ExecEx(
+				ctx,
+				"insert-txn-stats",
+				nil, /* txn */
+				sessiondata.InternalExecutorOverride{
+					User: security.NodeUserName(),
+				},
+				sqlstatsutil.TxnStatsInsertQuery,
+				timeutil.Unix(0 /* sec */, 0 /* nsec */), // aggregated_ts
+				fingerprintID,                            // fingerprint_ID
+				differentTxnStats.App,                    // app_name
+				1,                                        // node_id
+				differentTxnStats.Stats.Count,            // count
+				time.Hour,                                // agg_internal
+				txnStatsMetadataDatum,                    // metadata
+				txnStatsDatum,                            // statistics
+			)
+
+			require.NoError(t, err)
+			require.Equal(t, 1 /* expected */, rowsAffected)
+
+			actualInsertedData := getInsertedTxnStats(t, sqlConn, fingerprintID, differentTxnStats.App)
+
+			require.Equal(t, differentTxnStats, actualInsertedData)
+		})
 	})
+}
+
+func BenchmarkSQLStatsInsertion(t *testing.B) {
+	// TODO(azhng): wip: realistic benchmark for this one.
 }

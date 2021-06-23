@@ -227,7 +227,13 @@ var (
 			aggTyp:         binOpAgg,
 		},
 		{
-			name:           "ovhLat",
+			name:           "retryLat",
+			isNumericStats: true,
+			isExecStats:    false,
+			aggTyp:         binOpAgg,
+		},
+		{
+			name:           "commitLat",
 			isNumericStats: true,
 			isExecStats:    false,
 			aggTyp:         binOpAgg,
