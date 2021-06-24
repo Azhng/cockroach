@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/cockroachdb/cockroach/pkg/base"
+	"github.com/cockroachdb/cockroach/pkg/kv"
 	"github.com/cockroachdb/cockroach/pkg/roachpb"
 	"github.com/cockroachdb/cockroach/pkg/security"
 	"github.com/cockroachdb/cockroach/pkg/sql/sem/tree"
@@ -37,6 +38,111 @@ import (
 func encodeFingerprintID(id uint64) []byte {
 	result := make([]byte, 0, 8)
 	return encoding.EncodeUint64Ascending(result, id)
+}
+
+func __todo_move_later(
+	stmtStats *roachpb.CollectedStatementStatistics,
+) (fingerprintID []byte, metadata tree.Datum, stats *tree.DJSON, plan []byte, err error) {
+	fingerprintID = encodeFingerprintID(uint64(stmtStats.ID))
+
+	serializedStmtStats, err := sqlstatsutil.BuildStmtStatisticsJSON(stmtStats)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	metadataJSON, err := sqlstatsutil.BuildStmtMetadataJSON(stmtStats)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	metadata = tree.NewDJSON(metadataJSON)
+	stats = tree.NewDJSON(serializedStmtStats)
+
+	plan, err = stmtStats.Stats.SensitiveInfo.MostRecentPlanDescription.Marshal()
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	return fingerprintID, metadata, stats, plan, nil
+}
+func __todo_exists(
+	ctx context.Context,
+	txn *kv.Txn,
+	sqlConn sqlutil.InternalExecutor,
+	fingerprintID []byte,
+	appName string,
+) (exist bool, err error) {
+	row, err := sqlConn.QueryRowEx(
+		ctx,
+		"blah",
+		txn, /* txn */
+		sessiondata.InternalExecutorOverride{
+			User: security.NodeUserName(),
+		},
+		`
+SELECT
+	COUNT(*)
+FROM
+    system.statement_statistics
+WHERE fingerprint_id = $1
+    AND app_name = $2
+	  AND aggregated_ts = $3
+    AND plan_hash = $4
+    AND node_id = $5
+`, fingerprintID, appName,
+		timeutil.Unix(0 /* sec */, 0 /* nsec */), // aggregated_ts
+		0,                                        // plan_id
+		1,                                        // node_id
+	)
+	if err != nil {
+		return false, err
+	}
+	cnt := int64(*row[0].(*tree.DInt))
+
+	if cnt == 0 {
+		return false, nil
+	} else {
+		return true, nil
+	}
+}
+
+func __todo_get_inserted_data(
+	ctx context.Context,
+	txn *kv.Txn,
+	sqlConn sqlutil.InternalExecutor,
+	tableName string,
+	fingerprintID []byte,
+	appName string,
+) (count int64, stats json.JSON, metadata json.JSON, err error) {
+	rows, err := sqlConn.QueryRowEx(
+		ctx,
+		"blah",
+		txn, /* txn */
+		sessiondata.InternalExecutorOverride{
+			User: security.NodeUserName(),
+		},
+		`
+SELECT
+    count,
+    statistics,
+		metadata
+FROM
+    system.statement_statistics
+WHERE fingerprint_id = $1
+    AND app_name = $2
+	  AND aggregated_ts = $3
+    AND plan_hash = $4
+    AND node_id = $5
+`, fingerprintID, appName,
+		timeutil.Unix(0 /* sec */, 0 /* nsec */), // aggregated_ts
+		0,                                        // plan_id
+		1,                                        // node_id
+	)
+	count = int64(*rows[0].(*tree.DInt))
+	stats = rows[1].(*tree.DJSON).JSON
+	metadata = rows[2].(*tree.DJSON).JSON
+
+	return count, stats, metadata, nil
 }
 
 func getStmtStatsArgs(
@@ -125,6 +231,36 @@ func getInsertedTxnStats(
 	require.NoError(t, err)
 
 	return actualInsertedData
+}
+
+func __todo_get_inserted_stmt_data(
+	ctx context.Context,
+	txn *kv.Txn,
+	sqlConn sqlutil.InternalExecutor,
+	fingerprintID []byte,
+	appName string,
+) (roachpb.CollectedStatementStatistics, error) {
+	count, stats, metadata, err :=
+		__todo_get_inserted_data(ctx, txn, sqlConn, "system.statement_statistics", fingerprintID, appName)
+	if err != nil {
+		return roachpb.CollectedStatementStatistics{}, err
+	}
+
+	actualInsertedData := roachpb.CollectedStatementStatistics{
+		Key: roachpb.StatementStatisticsKey{
+			App: appName,
+		},
+		Stats: roachpb.StatementStatistics{
+			Count: count,
+		},
+	}
+
+	err = sqlstatsutil.UnmarshalStmtStatsJSON(stats, metadata, &actualInsertedData)
+	if err != nil {
+		return roachpb.CollectedStatementStatistics{}, err
+	}
+
+	return actualInsertedData, nil
 }
 
 func getInsertedStmtStats(
@@ -532,6 +668,212 @@ func TestInsertionQueries(t *testing.T) {
 	})
 }
 
-func BenchmarkSQLStatsInsertion(t *testing.B) {
-	// TODO(azhng): wip: realistic benchmark for this one.
+func BenchmarkSQLStatsInsertion(b *testing.B) {
+	defer leaktest.AfterTest(b)()
+	defer log.Scope(b).Close(b)
+
+	ctx := context.Background()
+
+	srv, sqlConn, _ := serverutils.StartServer(b, base.TestServerArgs{})
+	defer srv.Stopper().Stop(ctx)
+	defer func() {
+		err := sqlConn.Close()
+		require.NoError(b, err)
+	}()
+
+	kvDB := srv.DB()
+	internalEx := srv.InternalExecutor().(sqlutil.InternalExecutor)
+
+	b.Run("statements", func(b *testing.B) {
+		b.Run("no_conflict", func(b *testing.B) {
+			data := roachpb.CollectedStatementStatistics{}
+
+			b.ResetTimer()
+			b.SetBytes(int64(data.Size()))
+
+			_ = kvDB.Txn(ctx, func(ctx context.Context, txn *kv.Txn) error {
+				for i := 0; i < b.N; i++ {
+					// Incrementing ID to ensure no conflict is found.
+					data.ID++
+					fingerprintID, stmtStatsMetadataDatum, stmtStatsDatum, stmtPlan, _ := __todo_move_later(&data)
+					_, _ = internalEx.ExecEx(
+						ctx,
+						"insert-stmt-stats",
+						txn, /* txn */
+						sessiondata.InternalExecutorOverride{
+							User: security.NodeUserName(),
+						},
+						sqlstatsutil.StmtStatsInsertQuery,
+						timeutil.Unix(0 /* sec */, 0 /* nsec */), // aggregated_ts
+						fingerprintID,                            // fingerprint_ID
+						0,                                        // plan_id
+						data.Key.App,                             // app_name
+						1,                                        // node_id
+						data.Stats.Count,                         // count
+						time.Hour,                                // agg_internal
+						stmtStatsMetadataDatum,                   // metadata
+						stmtStatsDatum,                           // statistics
+						stmtPlan,                                 // plan
+					)
+
+				}
+				return nil
+			})
+
+		})
+
+		b.Run("all_conflict", func(b *testing.B) {
+			data := roachpb.CollectedStatementStatistics{}
+
+			b.ResetTimer()
+			b.SetBytes(int64(data.Size()))
+
+			_ = kvDB.Txn(ctx, func(ctx context.Context, txn *kv.Txn) error {
+				for i := 0; i < b.N; i++ {
+					data.Stats.Count++
+					data.Stats.ExecStats.Count++
+					fingerprintID, stmtStatsMetadataDatum, stmtStatsDatum, stmtPlan, _ := __todo_move_later(&data)
+					_, _ = internalEx.ExecEx(
+						ctx,
+						"insert-stmt-stats",
+						txn, /* txn */
+						sessiondata.InternalExecutorOverride{
+							User: security.NodeUserName(),
+						},
+						sqlstatsutil.StmtStatsInsertQuery,
+						timeutil.Unix(0 /* sec */, 0 /* nsec */), // aggregated_ts
+						fingerprintID,                            // fingerprint_ID
+						0,                                        // plan_id
+						data.Key.App,                             // app_name
+						1,                                        // node_id
+						data.Stats.Count,                         // count
+						time.Hour,                                // agg_internal
+						stmtStatsMetadataDatum,                   // metadata
+						stmtStatsDatum,                           // statistics
+						stmtPlan,                                 // plan
+					)
+				}
+				return nil
+			})
+		})
+	})
+
+	b.Run("strawman-all-insert", func(b *testing.B) {
+		q := `
+INSERT INTO system.statement_statistics
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`
+
+		data := roachpb.CollectedStatementStatistics{}
+
+		b.ResetTimer()
+		b.SetBytes(int64(data.Size()))
+
+		_ = kvDB.Txn(ctx, func(ctx context.Context, txn *kv.Txn) error {
+			for i := 0; i < b.N; i++ {
+				data.ID++
+				fingerprintID, stmtStatsMetadataDatum, stmtStatsDatum, stmtPlan, _ := __todo_move_later(&data)
+				_, _ = internalEx.ExecEx(
+					ctx,
+					"insert-stmt-stats",
+					txn, /* txn */
+					sessiondata.InternalExecutorOverride{
+						User: security.NodeUserName(),
+					},
+					q,
+					timeutil.Unix(0 /* sec */, 0 /* nsec */), // aggregated_ts
+					fingerprintID,                            // fingerprint_ID
+					0,                                        // plan_id
+					data.Key.App,                             // app_name
+					1,                                        // node_id
+					data.Stats.Count,                         // count
+					time.Hour,                                // agg_internal
+					stmtStatsMetadataDatum,                   // metadata
+					stmtStatsDatum,                           // statistics
+					stmtPlan,                                 // plan
+				)
+			}
+			return nil
+		})
+	})
+
+	b.Run("strawman-conflict", func(b *testing.B) {
+		q := `
+INSERT INTO system.statement_statistics
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`
+
+		data := roachpb.CollectedStatementStatistics{}
+
+		b.ResetTimer()
+		b.SetBytes(int64(data.Size()))
+
+		_ = kvDB.Txn(ctx, func(ctx context.Context, txn *kv.Txn) error {
+			for i := 0; i < b.N; i++ {
+				data.Stats.Count++
+				data.Stats.ExecStats.Count++
+				fingerprintID, stmtStatsMetadataDatum, stmtStatsDatum, stmtPlan, _ := __todo_move_later(&data)
+				// exists, err := __todo_exists(ctx, txn, internalEx, fingerprintID, data.Key.App)
+				// if err != nil {
+				// 	b.Fatal(err)
+				// }
+				_, err := internalEx.ExecEx(
+					ctx,
+					"insert-stmt-stats",
+					txn, /* txn */
+					sessiondata.InternalExecutorOverride{
+						User: security.NodeUserName(),
+					},
+					q,
+					timeutil.Unix(0 /* sec */, 0 /* nsec */), // aggregated_ts
+					fingerprintID,                            // fingerprint_ID
+					0,                                        // plan_id
+					data.Key.App,                             // app_name
+					1,                                        // node_id
+					data.Stats.Count,                         // count
+					time.Hour,                                // agg_internal
+					stmtStatsMetadataDatum,                   // metadata
+					stmtStatsDatum,                           // statistics
+					stmtPlan,                                 // plan
+				)
+				if err != nil {
+					insertedData, err := __todo_get_inserted_stmt_data(ctx, txn, internalEx, fingerprintID, "")
+					if err != nil {
+						b.Fatal(err)
+					}
+					data.Stats.Add(&insertedData.Stats)
+					fingerprintID, _, stmtStatsDatum, _, err := __todo_move_later(&data)
+					if err != nil {
+						b.Fatal(err)
+					}
+					_, err = internalEx.ExecEx(
+						ctx,
+						"update-stmt-stats",
+						txn, /* txn */
+						sessiondata.InternalExecutorOverride{
+							User: security.NodeUserName(),
+						},
+						`
+UPDATE system.statement_statistics
+SET statistics = $1, count = $2
+WHERE fingerprint_id = $3
+	AND aggregated_ts = $4
+  AND app_name = $5
+  AND plan_hash = $6
+  AND node_id = $7
+`,
+						stmtStatsDatum,                           // statistics
+						data.Stats.Count,                         // count
+						fingerprintID,                            // fingerprint_ID
+						timeutil.Unix(0 /* sec */, 0 /* nsec */), // aggregated_ts
+						data.Key.App,                             // app_name
+						0,                                        // plan_id
+						1,                                        // node_id
+					)
+					if err != nil {
+						b.Fatal(err)
+					}
+				}
+			}
+			return nil
+		})
+	})
 }
