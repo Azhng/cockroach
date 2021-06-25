@@ -91,7 +91,7 @@ func (s *SQLStats) periodicallyClearSQLStats(
 }
 
 // GetWriterForApplication implements sqlstats.Provider interface.
-func (s *SQLStats) GetWriterForApplication(appName string) sqlstats.Writer {
+func (s *SQLStats) GetWriterForApplication(appName string) sqlstats.WriterIterator {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if a, ok := s.mu.apps[appName]; ok {
@@ -104,6 +104,7 @@ func (s *SQLStats) GetWriterForApplication(appName string) sqlstats.Writer {
 		&s.atomic.uniqueStmtFingerprintCount,
 		&s.atomic.uniqueTxnFingerprintCount,
 		s.mu.mon,
+		appName,
 	)
 	s.mu.apps[appName] = a
 	return a
@@ -118,14 +119,14 @@ func (s *SQLStats) GetLastReset() time.Time {
 
 // IterateStatementStats implements sqlstats.Provider interface.
 func (s *SQLStats) IterateStatementStats(
-	_ context.Context, options *sqlstats.IteratorOptions, visitor sqlstats.StatementVisitor,
+	ctx context.Context, options *sqlstats.IteratorOptions, visitor sqlstats.StatementVisitor,
 ) error {
 	appNames := s.getAppNames(options.SortedAppNames)
 
 	for _, appName := range appNames {
 		statsContainer := s.getStatsForApplication(appName)
 
-		err := statsContainer.IterateStatementStats(appName, options.SortedKey, visitor)
+		err := statsContainer.IterateStatementStats(ctx, options, visitor)
 		if err != nil {
 			return fmt.Errorf("sql stats iteration abort: %s", err)
 		}
@@ -135,14 +136,14 @@ func (s *SQLStats) IterateStatementStats(
 
 // IterateTransactionStats implements sqlstats.Provider interface.
 func (s *SQLStats) IterateTransactionStats(
-	_ context.Context, options *sqlstats.IteratorOptions, visitor sqlstats.TransactionVisitor,
+	ctx context.Context, options *sqlstats.IteratorOptions, visitor sqlstats.TransactionVisitor,
 ) error {
 	appNames := s.getAppNames(options.SortedAppNames)
 
 	for _, appName := range appNames {
 		statsContainer := s.getStatsForApplication(appName)
 
-		err := statsContainer.IterateTransactionStats(appName, options.SortedKey, visitor)
+		err := statsContainer.IterateTransactionStats(ctx, options, visitor)
 		if err != nil {
 			return fmt.Errorf("sql stats iteration abort: %s", err)
 		}
@@ -152,7 +153,7 @@ func (s *SQLStats) IterateTransactionStats(
 
 // IterateAggregatedTransactionStats implements sqlstats.Provider interface.
 func (s *SQLStats) IterateAggregatedTransactionStats(
-	_ context.Context,
+	ctx context.Context,
 	options *sqlstats.IteratorOptions,
 	visitor sqlstats.AggregatedTransactionVisitor,
 ) error {
@@ -161,7 +162,7 @@ func (s *SQLStats) IterateAggregatedTransactionStats(
 	for _, appName := range appNames {
 		statsContainer := s.getStatsForApplication(appName)
 
-		err := statsContainer.IterateAggregatedTransactionStats(appName, visitor)
+		err := statsContainer.IterateAggregatedTransactionStats(ctx, options, visitor)
 		if err != nil {
 			return fmt.Errorf("sql stats iteration abort: %s", err)
 		}

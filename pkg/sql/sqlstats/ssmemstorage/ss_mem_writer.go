@@ -23,6 +23,17 @@ import (
 
 var _ sqlstats.Writer = &Container{}
 
+func (s *Container) Merge_todo(other sqlstats.Iterators) {
+	/*
+			some details can probably be ironed out here
+
+			other.IterateStatementStats(..., ..., func(stats) {
+				s.Record.......
+		  })
+			other.IterateTransactionStats()
+	*/
+}
+
 // RecordStatement implements sqlstats.Writer interface.
 // RecordStatement saves per-statement statistics.
 //

@@ -13,10 +13,11 @@ package sslocal
 import (
 	"github.com/cockroachdb/cockroach/pkg/sql/sessionphase"
 	"github.com/cockroachdb/cockroach/pkg/sql/sqlstats"
+	"github.com/cockroachdb/cockroach/pkg/sql/sqlstats/ssmemstorage"
 )
 
 type statsCollector struct {
-	sqlstats.Writer
+	sqlstats.WriterIterator
 
 	// phaseTimes tracks session-level phase times.
 	phaseTimes *sessionphase.Times
@@ -24,17 +25,37 @@ type statsCollector struct {
 	// previousPhaseTimes tracks the session-level phase times for the previous
 	// query. This enables the `SHOW LAST QUERY STATISTICS` observer statement.
 	previousPhaseTimes *sessionphase.Times
+
+	explicit bool
+
+	writeBackSink sqlstats.WriterIterator
 }
 
 var _ sqlstats.StatsCollector = &statsCollector{}
 
 // NewStatsCollector returns an instance of sqlstats.StatsCollector.
 func NewStatsCollector(
-	writer sqlstats.Writer, phaseTime *sessionphase.Times,
+	writer sqlstats.WriterIterator, phaseTime *sessionphase.Times,
 ) sqlstats.StatsCollector {
 	return &statsCollector{
-		Writer:     writer,
-		phaseTimes: phaseTime.Clone(),
+		WriterIterator: writer,
+		phaseTimes:     phaseTime.Clone(),
+		writeBackSink:  nil,
+		explicit:       false,
+	}
+}
+
+func (s *statsCollector) SetExplicit() {
+	s.explicit = true
+	s.writeBackSink = s.WriterIterator
+
+	// Detail omitted
+	s.WriterIterator = &ssmemstorage.Container{}
+}
+
+func (s *statsCollector) Finalize() {
+	if s.explicit {
+		s.writeBackSink.Merge_todo(s.WriterIterator)
 	}
 }
 
@@ -49,10 +70,10 @@ func (s *statsCollector) PreviousPhaseTimes() *sessionphase.Times {
 }
 
 // Reset implements sqlstats.StatsCollector interface.
-func (s *statsCollector) Reset(writer sqlstats.Writer, phaseTime *sessionphase.Times) {
+func (s *statsCollector) Reset(writer sqlstats.WriterIterator, phaseTime *sessionphase.Times) {
 	previousPhaseTime := s.phaseTimes
 	*s = statsCollector{
-		Writer:             writer,
+		WriterIterator:     writer,
 		previousPhaseTimes: previousPhaseTime,
 		phaseTimes:         phaseTime.Clone(),
 	}

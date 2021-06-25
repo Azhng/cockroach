@@ -96,9 +96,12 @@ type Container struct {
 	}
 
 	txnCounts transactionCounts
+
+	appName string
 }
 
 var _ sqlstats.Writer = &Container{}
+var _ sqlstats.Iterators = &Container{}
 
 // New returns a new instance of Container.
 func New(
@@ -108,11 +111,13 @@ func New(
 	uniqueStmtFingerprintCount *int64,
 	uniqueTxnFingerprintCount *int64,
 	mon *mon.BytesMonitor,
+	appName string,
 ) *Container {
 	s := &Container{
 		st:                         st,
 		uniqueStmtFingerprintLimit: uniqueStmtFingerprintLimit,
 		uniqueTxnFingerprintLimit:  uniqueTxnFingerprintLimit,
+		appName:                    appName,
 	}
 
 	s.mu.acc = mon.MakeBoundAccount()
@@ -125,10 +130,14 @@ func New(
 	return s
 }
 
+func (s *Container) GetAppName() string {
+	return s.appName
+}
+
 // IterateStatementStats iterates through the stored statement statistics
 // stored in this Container.
 func (s *Container) IterateStatementStats(
-	appName string, orderedKey bool, visitor sqlstats.StatementVisitor,
+	_ context.Context, options *sqlstats.IteratorOptions, visitor sqlstats.StatementVisitor,
 ) error {
 	var stmtKeys stmtList
 	s.mu.Lock()
@@ -136,7 +145,7 @@ func (s *Container) IterateStatementStats(
 		stmtKeys = append(stmtKeys, k)
 	}
 	s.mu.Unlock()
-	if orderedKey {
+	if options.SortedKey {
 		sort.Sort(stmtKeys)
 	}
 
@@ -169,7 +178,7 @@ func (s *Container) IterateStatementStats(
 				ImplicitTxn: stmtKey.implicitTxn,
 				FullScan:    fullScan,
 				Failed:      stmtKey.failed,
-				App:         appName,
+				App:         s.appName,
 				Database:    database,
 			},
 			ID:    stmtFingerprintID,
@@ -187,7 +196,7 @@ func (s *Container) IterateStatementStats(
 // IterateTransactionStats iterates through the stored transaction statistics
 // stored in this Container.
 func (s *Container) IterateTransactionStats(
-	appName string, orderedKey bool, visitor sqlstats.TransactionVisitor,
+	_ context.Context, options *sqlstats.IteratorOptions, visitor sqlstats.TransactionVisitor,
 ) error {
 	// Retrieve the transaction keys and optionally sort them.
 	var txnKeys txnList
@@ -196,7 +205,7 @@ func (s *Container) IterateTransactionStats(
 		txnKeys = append(txnKeys, k)
 	}
 	s.mu.Unlock()
-	if orderedKey {
+	if options.SortedKey {
 		sort.Sort(txnKeys)
 	}
 
@@ -216,7 +225,7 @@ func (s *Container) IterateTransactionStats(
 		txnStats.mu.Lock()
 		collectedStats := roachpb.CollectedTransactionStatistics{
 			StatementFingerprintIDs: txnStats.statementFingerprintIDs,
-			App:                     appName,
+			App:                     s.appName,
 			Stats:                   txnStats.mu.data,
 		}
 		txnStats.mu.Unlock()
@@ -232,14 +241,14 @@ func (s *Container) IterateTransactionStats(
 // IterateAggregatedTransactionStats iterates through the stored aggregated
 // transaction statistics stored in this Container.
 func (s *Container) IterateAggregatedTransactionStats(
-	appName string, visitor sqlstats.AggregatedTransactionVisitor,
+	_ context.Context, _ *sqlstats.IteratorOptions, visitor sqlstats.AggregatedTransactionVisitor,
 ) error {
 	var txnStat roachpb.TxnStats
 	s.txnCounts.mu.Lock()
 	txnStat = s.txnCounts.mu.TxnStats
 	s.txnCounts.mu.Unlock()
 
-	err := visitor(appName, &txnStat)
+	err := visitor(s.appName, &txnStat)
 	if err != nil {
 		return fmt.Errorf("sql stats iteration abort: %s", err)
 	}

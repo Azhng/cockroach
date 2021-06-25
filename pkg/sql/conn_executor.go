@@ -669,7 +669,7 @@ func (s *Server) newConnExecutor(
 	clientComm ClientComm,
 	memMetrics MemoryMetrics,
 	srvMetrics *Metrics,
-	statsWriter sqlstats.Writer,
+	statsWriter sqlstats.WriterIterator,
 ) *connExecutor {
 	// Create the various monitors.
 	// The session monitors are started in activate().
@@ -804,7 +804,7 @@ func (s *Server) newConnExecutorWithTxn(
 	srvMetrics *Metrics,
 	txn *kv.Txn,
 	syntheticDescs []catalog.Descriptor,
-	statsWriter sqlstats.Writer,
+	statsWriter sqlstats.WriterIterator,
 ) *connExecutor {
 	ex := s.newConnExecutor(ctx, sd, sdDefaults, stmtBuf, clientComm, memMetrics, srvMetrics, statsWriter)
 	if txn.Type() == kv.LeafTxn {
@@ -1195,7 +1195,7 @@ type connExecutor struct {
 	// statsWriter is a writer interface for recording per-application SQL usage
 	// statistics. It is maintained to represent statistics for the application
 	// currently identified by sessiondata.ApplicationName.
-	statsWriter sqlstats.Writer
+	statsWriter sqlstats.WriterIterator
 
 	// statsCollector is used to collect statistics about SQL statements and
 	// transactions.
