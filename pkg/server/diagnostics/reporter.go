@@ -50,7 +50,7 @@ import (
 var reportFrequency = settings.RegisterDurationSetting(
 	"diagnostics.reporting.interval",
 	"interval at which diagnostics data should be reported",
-	time.Hour,
+	time.Second*10,
 	settings.NonNegativeDuration,
 ).WithPublic()
 
@@ -136,6 +136,7 @@ func (r *Reporter) ReportDiagnostics(ctx context.Context) {
 		ctx, url.String(), "application/x-protobuf", bytes.NewReader(b),
 	)
 	if err != nil {
+		log.Infof(ctx, "SEARCHME: %v", err)
 		if log.V(2) {
 			// This is probably going to be relatively common in production
 			// environments where network access is usually curtailed.
@@ -146,6 +147,7 @@ func (r *Reporter) ReportDiagnostics(ctx context.Context) {
 	defer res.Body.Close()
 	b, err = ioutil.ReadAll(res.Body)
 	if err != nil || res.StatusCode != http.StatusOK {
+		log.Infof(ctx, "SEARCHME: %v", err)
 		log.Warningf(ctx, "failed to report node usage metrics: status: %s, body: %s, "+
 			"error: %v", res.Status, b, err)
 		return
