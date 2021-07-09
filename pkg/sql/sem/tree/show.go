@@ -716,11 +716,16 @@ const (
 	// ScheduledBackupExecutor is an executor responsible for
 	// the execution of the scheduled backups.
 	ScheduledBackupExecutor
+
+	// ScheduledSQLStatsCompactionExecutor is an executor responsible for the
+	// execution of the scheduled SQL Stats compaction.
+	ScheduledSQLStatsCompactionExecutor
 )
 
 var scheduleExecutorInternalNames = map[ScheduledJobExecutorType]string{
-	InvalidExecutor:         "unknown-executor",
-	ScheduledBackupExecutor: "scheduled-backup-executor",
+	InvalidExecutor:                     "unknown-executor",
+	ScheduledBackupExecutor:             "scheduled-backup-executor",
+	ScheduledSQLStatsCompactionExecutor: "scheduled-sql-stats-compaction-executor",
 }
 
 // InternalName returns an internal executor name.
@@ -734,6 +739,8 @@ func (t ScheduledJobExecutorType) UserName() string {
 	switch t {
 	case ScheduledBackupExecutor:
 		return "BACKUP"
+	case ScheduledSQLStatsCompactionExecutor:
+		return "sql-stats-compaction"
 	}
 	return "unsupported-executor"
 }
