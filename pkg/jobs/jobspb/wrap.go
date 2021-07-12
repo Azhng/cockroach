@@ -234,6 +234,8 @@ func WrapPayloadDetails(details Details) interface {
 		return &Payload_NewSchemaChange{NewSchemaChange: &d}
 	case MigrationDetails:
 		return &Payload_Migration{Migration: &d}
+	case SQLStatsCompactionDetails:
+		return &Payload_SqlStatsCompaction{SqlStatsCompaction: &d}
 	default:
 		panic(errors.AssertionFailedf("jobs.WrapPayloadDetails: unknown details type %T", d))
 	}
@@ -269,7 +271,7 @@ const (
 func (Type) SafeValue() {}
 
 // NumJobTypes is the number of jobs types.
-const NumJobTypes = 13
+const NumJobTypes = 14
 
 // MarshalJSONPB redacts sensitive sink URI parameters from ChangefeedDetails.
 func (p ChangefeedDetails) MarshalJSONPB(x *jsonpb.Marshaler) ([]byte, error) {
