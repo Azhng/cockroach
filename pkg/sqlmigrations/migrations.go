@@ -20,9 +20,11 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/clusterversion"
 	"github.com/cockroachdb/cockroach/pkg/config/zonepb"
 	"github.com/cockroachdb/cockroach/pkg/jobs"
+	"github.com/cockroachdb/cockroach/pkg/jobs/jobspb"
 	"github.com/cockroachdb/cockroach/pkg/keys"
 	"github.com/cockroachdb/cockroach/pkg/kv"
 	"github.com/cockroachdb/cockroach/pkg/roachpb"
+	"github.com/cockroachdb/cockroach/pkg/scheduledjobs"
 	"github.com/cockroachdb/cockroach/pkg/security"
 	"github.com/cockroachdb/cockroach/pkg/settings/cluster"
 	"github.com/cockroachdb/cockroach/pkg/sql"
@@ -33,6 +35,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/sql/catalog/systemschema"
 	"github.com/cockroachdb/cockroach/pkg/sql/sem/tree"
 	"github.com/cockroachdb/cockroach/pkg/sql/sessiondata"
+	"github.com/cockroachdb/cockroach/pkg/sql/sqlstats/persistedsqlstats"
 	"github.com/cockroachdb/cockroach/pkg/sqlmigrations/leasemanager"
 	"github.com/cockroachdb/cockroach/pkg/util/hlc"
 	"github.com/cockroachdb/cockroach/pkg/util/log"
@@ -299,6 +302,11 @@ var backwardCompatibleMigrations = []migrationDescriptor{
 	{
 		// Introduced in v20.2.
 		name: "mark non-terminal schema change jobs with a pre-20.1 format version as failed",
+	},
+	{
+		// Introduced in v21.2.
+		name:   "register SQL Stats compaction job",
+		workFn: createSQLStatsCompactionSchedule,
 	},
 }
 
@@ -966,4 +974,41 @@ func updateSystemLocationData(ctx context.Context, r runner) error {
 
 func createTenantsTable(ctx context.Context, r runner) error {
 	return createSystemTable(ctx, r, systemschema.TenantsTable)
+}
+
+// TODO(azhng): wip: we should prolly move this into a package?
+func createSQLStatsCompactionSchedule(ctx context.Context, r runner) error {
+	// TODO(azhng): wip: do we need to check for pre-existing job?
+
+	compactionJob := jobs.NewScheduledJob(scheduledjobs.ProdJobSchedulerEnv)
+	// TODO(azhng): wip: I suppose we can use a default value and have a
+	//  SetOnChange() hook into the cluster setting to observe the change.
+	if err := compactionJob.SetSchedule("@hourly"); err != nil {
+		return err
+	}
+
+	compactionJob.SetScheduleDetails(jobspb.ScheduleDetails{
+		Wait: jobspb.ScheduleDetails_SKIP,
+		// TODO(azhng): wip: or we should retry this asap?
+		OnError: jobspb.ScheduleDetails_RETRY_SCHED,
+	})
+
+	// TODO(azhng): wip: extract label.
+	compactionJob.SetScheduleLabel(persistedsqlstats.CompactionJobName)
+
+	// compactionJob.SetNextRun(timeutil.Now().Add(time.Hour))
+	// TODO(azhng): wip: for dev
+	compactionJob.SetNextRun(timeutil.Now())
+
+	// TODO(azhng): wip: this makes sense right?
+	compactionJob.SetOwner(security.NodeUserName())
+
+	compactionJob.SetExecutionDetails(
+		tree.ScheduledSQLStatsCompactionExecutor.InternalName(),
+		jobspb.ExecutionArguments{Args: nil},
+	)
+
+	compactionJob.SetScheduleStatus("Waiting for initial compaction to complete")
+
+	return compactionJob.Create(ctx, r.sqlExecutor, nil /* txn */)
 }

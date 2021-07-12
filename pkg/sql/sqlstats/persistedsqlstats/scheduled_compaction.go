@@ -12,6 +12,7 @@ package persistedsqlstats
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/cockroachdb/cockroach/pkg/jobs"
 	"github.com/cockroachdb/cockroach/pkg/jobs/jobspb"
@@ -19,9 +20,10 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/scheduledjobs"
 	"github.com/cockroachdb/cockroach/pkg/sql/sem/tree"
 	"github.com/cockroachdb/cockroach/pkg/sql/sqlutil"
-	"github.com/cockroachdb/cockroach/pkg/util/log"
 	"github.com/cockroachdb/cockroach/pkg/util/metric"
 )
+
+const CompactionJobName = "sql-stats-compaction"
 
 type scheduledSQLStatsCompactionExecutor struct {
 	metrics sqlStatsCompactionMetrics
@@ -58,8 +60,12 @@ func (e *scheduledSQLStatsCompactionExecutor) ExecuteJob(
 func (e *scheduledSQLStatsCompactionExecutor) executeCompact(
 	ctx context.Context, cfg *scheduledjobs.JobExecutionConfig, sj *jobs.ScheduledJob, txn *kv.Txn,
 ) error {
-	// TODO(azhng): wip:
-	log.Infof(ctx, "TODO(azhng): wip")
+	// TODO(azhng): wip: deleteme
+	fmt.Printf("TODO(azhng): executing compact\n")
+
+	// TODO(azhng): wip: formalize state transition
+	sj.SetScheduleStatus("Executing Compaction")
+
 	return nil
 }
 
@@ -74,8 +80,8 @@ func (e *scheduledSQLStatsCompactionExecutor) NotifyJobTermination(
 	ex sqlutil.InternalExecutor,
 	txn *kv.Txn,
 ) error {
-	// TODO(azhng): wip:
-	log.Infof(ctx, "TODO(azhng): wip: maybe we should handle this?")
+	// TODO(azhng): wip: deleteme
+	fmt.Printf("TODO(azhng): wip: notify termination\n")
 	return nil
 }
 
