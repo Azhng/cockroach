@@ -3356,11 +3356,12 @@ var _ base.ModuleTestingKnobs = &EvalContextTestingKnobs{}
 // ModuleTestingKnobs is part of the base.ModuleTestingKnobs interface.
 func (*EvalContextTestingKnobs) ModuleTestingKnobs() {}
 
-// SQLStatsResetter is an interface embedded in EvalCtx which can be used by
+// SQLStatsController is an interface embedded in EvalCtx which can be used by
 // the builtins to reset SQL stats in the cluster. This interface is introduced
 // to avoid circular dependency.
-type SQLStatsResetter interface {
+type SQLStatsController interface {
 	ResetClusterSQLStats(ctx context.Context) error
+	CreateSQLStatsCompactionJob(ctx context.Context) error
 }
 
 // EvalContext defines the context in which to evaluate an expression, allowing
@@ -3488,7 +3489,7 @@ type EvalContext struct {
 
 	SQLLivenessReader sqlliveness.Reader
 
-	SQLStatsResetter SQLStatsResetter
+	SQLStatsController SQLStatsController
 
 	// CompactEngineSpan is used to force compaction of a span in a store.
 	CompactEngineSpan CompactEngineSpanFunc

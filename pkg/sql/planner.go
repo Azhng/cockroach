@@ -413,26 +413,26 @@ func internalExtendedEvalCtx(
 ) extendedEvalContext {
 	evalContextTestingKnobs := execCfg.EvalContextTestingKnobs
 
-	var sqlStatsResetter tree.SQLStatsResetter
+	var sqlStatsResetter tree.SQLStatsController
 	if execCfg.InternalExecutor != nil {
 		sqlStatsResetter = execCfg.InternalExecutor.s
 	}
 
 	return extendedEvalContext{
 		EvalContext: tree.EvalContext{
-			Txn:              txn,
-			SessionData:      sd,
-			TxnReadOnly:      false,
-			TxnImplicit:      true,
-			Settings:         execCfg.Settings,
-			Codec:            execCfg.Codec,
-			Context:          ctx,
-			Mon:              plannerMon,
-			TestingKnobs:     evalContextTestingKnobs,
-			StmtTimestamp:    stmtTimestamp,
-			TxnTimestamp:     txnTimestamp,
-			InternalExecutor: execCfg.InternalExecutor,
-			SQLStatsResetter: sqlStatsResetter,
+			Txn:                txn,
+			SessionData:        sd,
+			TxnReadOnly:        false,
+			TxnImplicit:        true,
+			Settings:           execCfg.Settings,
+			Codec:              execCfg.Codec,
+			Context:            ctx,
+			Mon:                plannerMon,
+			TestingKnobs:       evalContextTestingKnobs,
+			StmtTimestamp:      stmtTimestamp,
+			TxnTimestamp:       txnTimestamp,
+			InternalExecutor:   execCfg.InternalExecutor,
+			SQLStatsController: sqlStatsResetter,
 		},
 		SessionMutator:    dataMutator,
 		VirtualSchemas:    execCfg.VirtualSchemas,

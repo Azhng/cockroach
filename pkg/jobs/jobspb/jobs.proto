@@ -728,7 +728,7 @@ message Progress {
     StreamIngestionProgress streamIngest = 18;
     NewSchemaChangeProgress newSchemaChange = 19;
     MigrationProgress migration = 20;
-    SQLStatsCompactionDetails sqlStatsCompaction = 22;
+    SQLStatsCompactionProgress sqlStatsCompaction = 22;
   }
 
   uint64 trace_id = 21 [(gogoproto.customname) = "TraceID"];

@@ -5242,11 +5242,11 @@ table's zone configuration this will return NULL.`,
 			Types:      tree.ArgTypes{},
 			ReturnType: tree.FixedReturnType(types.Bool),
 			Fn: func(evalCtx *tree.EvalContext, args tree.Datums) (tree.Datum, error) {
-				if evalCtx.SQLStatsResetter == nil {
-					return nil, errors.AssertionFailedf("sql stats resetter not set")
+				if evalCtx.SQLStatsController == nil {
+					return nil, errors.AssertionFailedf("sql stats controller not set")
 				}
 				ctx := evalCtx.Ctx()
-				if err := evalCtx.SQLStatsResetter.ResetClusterSQLStats(ctx); err != nil {
+				if err := evalCtx.SQLStatsController.ResetClusterSQLStats(ctx); err != nil {
 					return nil, err
 				}
 				return tree.MakeDBool(true), nil
@@ -5276,6 +5276,30 @@ table's zone configuration this will return NULL.`,
 				return tree.DBoolTrue, err
 			},
 			Info:       "This function can be used to clear the data belonging to a table, when the table cannot be dropped.",
+			Volatility: tree.VolatilityVolatile,
+		},
+	),
+
+	// TODO(azhng): wip: docs
+	"crdb_internal.sql_stats_compact": makeBuiltin(
+		tree.FunctionProperties{
+			Category: categorySystemInfo,
+		},
+		tree.Overload{
+			Types:      tree.ArgTypes{},
+			ReturnType: tree.FixedReturnType(types.Bool),
+			Fn: func(evalCtx *tree.EvalContext, args tree.Datums) (tree.Datum, error) {
+				fmt.Printf("running sql stats compaction\n")
+				if evalCtx.SQLStatsController == nil {
+					return nil, errors.AssertionFailedf("sql stats controller not set")
+				}
+				ctx := evalCtx.Ctx()
+				if err := evalCtx.SQLStatsController.CreateSQLStatsCompactionJob(ctx); err != nil {
+					return nil, err
+				}
+				return tree.DBoolTrue, nil
+			},
+			Info:       "This function is used to start a SQL stats compaction job.",
 			Volatility: tree.VolatilityVolatile,
 		},
 	),

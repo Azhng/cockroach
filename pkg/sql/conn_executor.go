@@ -257,7 +257,7 @@ type Server struct {
 
 	// sqlStats tracks per-application statistics for all applications on each
 	// node. Newly collected statistics flow into sqlStats.
-	sqlStats sqlstats.Provider
+	sqlStats *persistedsqlstats.PersistedSQLStats
 
 	// reportedStats is a pool of stats that is held for reporting, and is
 	// cleared on a lower interval than sqlStats. Stats from sqlStats flow
@@ -335,6 +335,7 @@ func NewServer(cfg *ExecutorConfig, pool *mon.BytesMonitor) *Server {
 		InternalExecutor: &sqlStatsInternalExecutor,
 		KvDB:             cfg.DB,
 		SQLIDContainer:   cfg.NodeID,
+		JobRegistry:      s.cfg.JobRegistry,
 		Knobs:            cfg.SQLStatsTestingKnobs,
 		FlushCounter:     metrics.StatsMetrics.SQLStatsFlushStarted,
 		FailureCounter:   metrics.StatsMetrics.SQLStatsFlushFailure,
@@ -877,6 +878,12 @@ func (s *Server) ResetClusterSQLStats(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+// TODO(azhng): wip: this is one ugly ass stupid blasphemous atrocity.
+//  Move this into the SQL Stats package.
+func (s *Server) CreateSQLStatsCompactionJob(ctx context.Context) error {
+	return s.sqlStats.CreateCompactionJob(ctx)
 }
 
 type closeType int
@@ -2312,7 +2319,7 @@ func (ex *connExecutor) initEvalCtx(ctx context.Context, evalCtx *extendedEvalCo
 			InternalExecutor:   &ie,
 			DB:                 ex.server.cfg.DB,
 			SQLLivenessReader:  ex.server.cfg.SQLLivenessReader,
-			SQLStatsResetter:   ex.server,
+			SQLStatsController: ex.server,
 			CompactEngineSpan:  ex.server.cfg.CompactEngineSpanFunc,
 		},
 		SessionMutator:       ex.dataMutator,

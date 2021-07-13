@@ -18,7 +18,10 @@ import (
 	"time"
 
 	"github.com/cockroachdb/cockroach/pkg/base"
+	"github.com/cockroachdb/cockroach/pkg/jobs"
+	"github.com/cockroachdb/cockroach/pkg/jobs/jobspb"
 	"github.com/cockroachdb/cockroach/pkg/kv"
+	"github.com/cockroachdb/cockroach/pkg/security"
 	"github.com/cockroachdb/cockroach/pkg/settings/cluster"
 	"github.com/cockroachdb/cockroach/pkg/sql/sqlstats"
 	"github.com/cockroachdb/cockroach/pkg/sql/sqlstats/sslocal"
@@ -42,10 +45,15 @@ type Config struct {
 	InternalExecutor sqlutil.InternalExecutor
 	KvDB             *kv.DB
 	SQLIDContainer   *base.SQLIDContainer
-	Knobs            *TestingKnobs
-	FlushCounter     *metric.Counter
-	FlushDuration    *metric.Histogram
-	FailureCounter   *metric.Counter
+	JobRegistry      *jobs.Registry
+
+	// Metrics.
+	FlushCounter   *metric.Counter
+	FlushDuration  *metric.Histogram
+	FailureCounter *metric.Counter
+
+	// Testing knobs.
+	Knobs *TestingKnobs
 }
 
 // flushState represents the current flushState of the PersistedSQLStats.
@@ -154,4 +162,35 @@ func (s *PersistedSQLStats) GetWriterForApplication(appName string) sqlstats.Wri
 		memWriter:            writer,
 		memoryPressureSignal: s.memoryPressureSignal,
 	}
+}
+
+// CreateCompactionJob does .... stuff ... TODO(azhng): finish this
+func (s *PersistedSQLStats) CreateCompactionJob(ctx context.Context) error {
+	record := jobs.Record{
+		Description: "SQL Stats compaction",
+		Statements:  []string{"SELECT crdb_internal.sql_stats_compact()"},
+		Username:    security.NodeUserName(),
+		Details:     jobspb.SQLStatsCompactionDetails{},
+		Progress:    jobspb.SQLStatsCompactionProgress{},
+	}
+
+	var job *jobs.StartableJob
+	jobID := s.cfg.JobRegistry.MakeJobID()
+
+	if err := s.cfg.KvDB.Txn(ctx, func(ctx context.Context, txn *kv.Txn) error {
+		return s.cfg.JobRegistry.CreateStartableJobWithTxn(ctx, &job, jobID, txn, record)
+	}); err != nil {
+		if job != nil {
+			if cleanupErr := job.CleanupOnRollback(ctx); cleanupErr != nil {
+				log.Warningf(ctx, "failed to cleanup StartableJob: %v", cleanupErr)
+			}
+		}
+		return err
+	}
+
+	if err := job.Start(ctx); err != nil {
+		return err
+	}
+
+	return nil
 }

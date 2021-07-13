@@ -147,7 +147,7 @@ type ServerConfig struct {
 
 	// SQLStatsResetter is an interface used to reset SQL stats without the need to
 	// introduce dependency on the sql package.
-	SQLStatsResetter tree.SQLStatsResetter
+	SQLStatsResetter tree.SQLStatsController
 
 	// VirtualSchemas hold the virtual table schemas.
 	VirtualSchemas catalog.VirtualSchemas
