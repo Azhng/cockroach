@@ -34,6 +34,7 @@ var SQLStatsFlushEnabled = settings.RegisterBoolSetting(
 	false, /* defaultValue */
 ).WithPublic()
 
+// SQLStatsMaxPersistedRows is ... something TODO(azhng): wip
 var SQLStatsMaxPersistedRows = settings.RegisterIntSetting(
 	"sql.stats.persisted_rows.max",
 	"this controls maximum number of rows of statement and transaction"+
