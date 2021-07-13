@@ -18,7 +18,9 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/jobs/jobspb"
 	"github.com/cockroachdb/cockroach/pkg/kv"
 	"github.com/cockroachdb/cockroach/pkg/scheduledjobs"
+	"github.com/cockroachdb/cockroach/pkg/security"
 	"github.com/cockroachdb/cockroach/pkg/sql/sem/tree"
+	"github.com/cockroachdb/cockroach/pkg/sql/sessiondata"
 	"github.com/cockroachdb/cockroach/pkg/sql/sqlutil"
 	"github.com/cockroachdb/cockroach/pkg/util/metric"
 )
@@ -66,6 +68,14 @@ func (e *scheduledSQLStatsCompactionExecutor) executeCompact(
 	// TODO(azhng): wip: formalize state transition
 	sj.SetScheduleStatus("Executing Compaction")
 
+	_, err := cfg.InternalExecutor.ExecEx(ctx, "schedule-sql-compaction-job", txn,
+		sessiondata.InternalExecutorOverride{User: security.NodeUserName()},
+		"SELECT crdb_internal.sql_stats_compact()")
+
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -81,7 +91,7 @@ func (e *scheduledSQLStatsCompactionExecutor) NotifyJobTermination(
 	txn *kv.Txn,
 ) error {
 	// TODO(azhng): wip: deleteme
-	fmt.Printf("TODO(azhng): wip: notify termination\n")
+	fmt.Printf("Pretending to be notifed of termination\n")
 	return nil
 }
 

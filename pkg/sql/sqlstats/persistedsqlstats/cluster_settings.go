@@ -33,3 +33,10 @@ var SQLStatsFlushEnabled = settings.RegisterBoolSetting(
 	"this controls whether the SQL statistics are being flushed to system table",
 	false, /* defaultValue */
 ).WithPublic()
+
+var SQLStatsMaxPersistedRows = settings.RegisterIntSetting(
+	"sql.stats.persisted_rows.max",
+	"this controls maximum number of rows of statement and transaction"+
+		" statistics will be persisted in the system tables",
+	10000, /* defaultValue */
+).WithPublic()

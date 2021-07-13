@@ -127,6 +127,7 @@ sql.stats.flush.enabled	boolean	false	this controls whether the SQL statistics a
 sql.stats.flush.interval	duration	1h0m0s	this interval controls how often SQL stats are flushed to system table,it's default to 1 hour
 sql.stats.histogram_collection.enabled	boolean	true	histogram collection mode
 sql.stats.multi_column_collection.enabled	boolean	true	multi-column statistics collection mode
+sql.stats.persisted_rows.max	integer	10000	this controls maximum number of rows of statement and transaction statistics will be persisted in the system tables
 sql.stats.post_events.enabled	boolean	false	if set, an event is logged for every CREATE STATISTICS job
 sql.temp_object_cleaner.cleanup_interval	duration	30m0s	how often to clean up orphaned temporary objects
 sql.trace.log_statement_execute	boolean	false	set to true to enable logging of executed statements
