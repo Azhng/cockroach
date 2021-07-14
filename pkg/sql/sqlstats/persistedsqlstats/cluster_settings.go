@@ -31,7 +31,7 @@ var SQLStatsFlushInterval = settings.RegisterDurationSetting(
 var SQLStatsFlushEnabled = settings.RegisterBoolSetting(
 	"sql.stats.flush.enabled",
 	"this controls whether the SQL statistics are being flushed to system table",
-	false, /* defaultValue */
+	true, /* defaultValue */
 ).WithPublic()
 
 // SQLStatsMaxPersistedRows is ... something TODO(azhng): wip
