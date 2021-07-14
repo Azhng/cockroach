@@ -284,6 +284,8 @@ var (
 		systemschema.UsersTable.GetName(),
 		systemschema.JobsTable.GetName(),
 		systemschema.EventLogTable.GetName(),
+		systemschema.StatementStatisticsTable.GetName(),
+		systemschema.TransactionStatisticsTable.GetName(),
 	}
 	allowedCachedSystemTableNameRE = regexp.MustCompile(fmt.Sprintf(
 		"^%s$", strings.Join(allowedCachedSystemTables, "|"),
